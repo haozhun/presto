@@ -24,6 +24,7 @@ import com.facebook.presto.orc.stream.LongStream;
 import com.facebook.presto.orc.stream.RowGroupDictionaryLengthStream;
 import com.facebook.presto.orc.stream.StreamSource;
 import com.facebook.presto.orc.stream.StreamSources;
+import io.airlift.log.Logger;
 import io.airlift.slice.Slice;
 import io.airlift.slice.Slices;
 
@@ -50,6 +51,7 @@ import static com.google.common.base.Preconditions.checkState;
 public class SliceDictionaryStreamReader
         implements StreamReader
 {
+    private static final Logger log = Logger.get(SliceDictionaryStreamReader.class);
     private static final int CHUNK_BYTES = 8 * 1024 * 1024; // 8MiB
     private final StreamDescriptor streamDescriptor;
 
@@ -145,6 +147,7 @@ public class SliceDictionaryStreamReader
             }
             Arrays.fill(isNullVector, false);
             dataStream.nextIntVector(nextBatchSize, dataVector);
+            //log.info("V %d", nextBatchSize);
         }
         else {
             int nullValues = presentStream.getUnsetBits(nextBatchSize, isNullVector);
@@ -153,6 +156,7 @@ public class SliceDictionaryStreamReader
                     throw new OrcCorruptionException("Value is not null but data stream is not present");
                 }
                 dataStream.nextIntVector(nextBatchSize, dataVector, isNullVector);
+                //log.info("V %d  (N %d)", nextBatchSize, nullValues);
             }
         }
 
@@ -251,6 +255,7 @@ public class SliceDictionaryStreamReader
             }
             lengthStream.nextIntVector(dictionarySize, dictionaryLength);
 
+            //log.info("DSTRIPE");
             ByteArrayStream dictionaryDataStream = dictionaryDataStreamSource.openStream();
             readDictionary(dictionaryDataStream, dictionarySize, dictionaryLength, dictionary, useSharedByteArrayForDictionary);
         }
@@ -325,8 +330,10 @@ public class SliceDictionaryStreamReader
 
                 startIndex = endIndex;
             }
+            //log.info("DS %d %dB", dictionarySize, totalLength);
         }
         else {
+            int totalLength = 0;
             // build dictionary slices
             for (int i = 0; i < dictionarySize; i++) {
                 int length = dictionaryLength[i];
@@ -338,8 +345,10 @@ public class SliceDictionaryStreamReader
                         throw new OrcCorruptionException("Dictionary length is not zero but dictionary data stream is not present");
                     }
                     dictionary[i] = Slices.wrappedBuffer(dictionaryDataStream.next(length));
+                    totalLength += length;
                 }
             }
+            //log.info("D %d %dB", dictionarySize, totalLength);
         }
     }
 

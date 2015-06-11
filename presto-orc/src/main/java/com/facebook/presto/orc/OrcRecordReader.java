@@ -29,6 +29,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.primitives.Ints;
+import io.airlift.log.Logger;
 import org.joda.time.DateTimeZone;
 
 import java.io.IOException;
@@ -46,6 +47,8 @@ import static java.util.Comparator.comparingLong;
 
 public class OrcRecordReader
 {
+    private static final Logger log = Logger.get(OrcRecordReader.class);
+
     private final OrcDataSource orcDataSource;
 
     private final StreamReader[] streamReaders;
@@ -276,6 +279,7 @@ public class OrcRecordReader
     public void readVector(int columnIndex, Object vector)
             throws IOException
     {
+        //log.info("CX C%d", columnIndex);
         streamReaders[columnIndex].readBatch(vector);
     }
 
