@@ -242,6 +242,20 @@
             <artifactId>jgrapht-core</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>com.google.re2j</groupId>
+            <artifactId>re2j</artifactId>
+            <version>1.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.logentries.re2</groupId>
+            <artifactId>re2-java</artifactId>
+            <version>1.0</version>
+            <scope>system</scope>
+            <systemPath>/home/hjin/re2-java/target/libre2-java-1.2.5.jar</systemPath>
+        </dependency>
+
         <!-- for testing -->
         <dependency>
             <groupId>org.testng</groupId>
@@ -339,7 +353,7 @@
                                 <argument>-Dmyproperty=myvalue</argument>
                                 <argument>-classpath</argument>
                                 <classpath />
-                                <argument>com.facebook.presto.benchmark.BenchmarkSuite</argument>
+                                <argument>com.facebook.presto.operator.scalar.RegexpLibraryBenchmark</argument>
                             </arguments>
                             <classpathScope>test</classpathScope>
                         </configuration>
