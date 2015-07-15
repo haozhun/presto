@@ -226,6 +226,8 @@ primaryExpression
     | qualifiedName                                                                  #columnReference
     | qualifiedName '(' ASTERISK ')' over?                                           #functionCall
     | qualifiedName '(' (setQuantifier? expression (',' expression)*)? ')' over?     #functionCall
+    | qualifiedName '->' '{' expression '}'                                          #lambda
+    | '(' qualifiedName (',' qualifiedName)* ')' '->' '{' expression '}'             #lambda
     | '(' query ')'                                                                  #subqueryExpression
     | CASE valueExpression whenClause+ (ELSE elseExpression=expression)? END         #simpleCase
     | CASE whenClause+ (ELSE elseExpression=expression)? END                         #searchedCase

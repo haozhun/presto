@@ -36,9 +36,11 @@ public class FunctionType
     private final Type returnType;
     private final List<Type> argumentTypes;
 
+    public static final String NAME = "function";
+
     public FunctionType(List<Type> argumentTypes, Type returnType)
     {
-        super(parameterizedTypeName("function", typeParameters(argumentTypes, returnType)), MethodHandle.class);
+        super(parameterizedTypeName(NAME, typeParameters(argumentTypes, returnType)), MethodHandle.class);
         this.returnType = requireNonNull(returnType, "returnType is null");
         this.argumentTypes = ImmutableList.copyOf(requireNonNull(argumentTypes, "parameterTypes is null"));
     }
@@ -101,6 +103,6 @@ public class FunctionType
         ImmutableList<String> names = getTypeParameters().stream()
                 .map(Type::getDisplayName)
                 .collect(toImmutableList());
-        return "function<" + Joiner.on(",").join(names) + ">";
+        return NAME + "<" + Joiner.on(",").join(names) + ">";
     }
 }

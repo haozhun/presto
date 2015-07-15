@@ -334,6 +334,24 @@ public class FunctionRegistry
         return Iterables.any(functions.get(name), ParametricFunction::isAggregate);
     }
 
+    public List<? extends TypeSignature> resolveFunctionPartial(QualifiedName name, List<TypeSignature> parameterTypes, boolean approximate)
+    {
+        List<ParametricFunction> candidates = functions.get(name).stream()
+                .filter(function -> function.isScalar() || function.isApproximate() == approximate)
+                .collect(toImmutableList());
+
+        // search for exact match
+        List<? extends TypeSignature> match = null;
+        for (ParametricFunction function : candidates) {
+            List<? extends TypeSignature> partiallyResolvedParameterType = function.getSignature().bindUnboundArguments(parameterTypes, false, typeManager);
+            if (partiallyResolvedParameterType != null) {
+                checkArgument(match == null, "Ambiguous call to %s with parameters %s", name, parameterTypes);
+                match = partiallyResolvedParameterType;
+            }
+        }
+        return match;
+    }
+
     public FunctionInfo resolveFunction(QualifiedName name, List<TypeSignature> parameterTypes, boolean approximate)
     {
         List<ParametricFunction> candidates = functions.get(name).stream()

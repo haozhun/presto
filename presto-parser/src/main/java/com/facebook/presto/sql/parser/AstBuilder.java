@@ -57,6 +57,7 @@ import com.facebook.presto.sql.tree.Join;
 import com.facebook.presto.sql.tree.JoinCriteria;
 import com.facebook.presto.sql.tree.JoinOn;
 import com.facebook.presto.sql.tree.JoinUsing;
+import com.facebook.presto.sql.tree.LambdaExpression;
 import com.facebook.presto.sql.tree.LikePredicate;
 import com.facebook.presto.sql.tree.LogicalBinaryExpression;
 import com.facebook.presto.sql.tree.LongLiteral;
@@ -915,6 +916,19 @@ class AstBuilder
                 window,
                 distinct,
                 visit(context.expression(), Expression.class));
+    }
+
+    @Override
+    public Node visitLambda(SqlBaseParser.LambdaContext context)
+    {
+        ImmutableList.Builder<QualifiedName> namesBuilder = ImmutableList.builder();
+        for (SqlBaseParser.QualifiedNameContext qualifiedName : context.qualifiedName()) {
+            namesBuilder.add(getQualifiedName(qualifiedName));
+        }
+
+        Expression expression = (Expression) visit(context.expression());
+
+        return new LambdaExpression(namesBuilder.build(), expression);
     }
 
     @Override

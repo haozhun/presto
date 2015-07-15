@@ -57,7 +57,10 @@ import com.facebook.presto.sql.tree.DefaultTraversalVisitor;
 import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.ExpressionRewriter;
 import com.facebook.presto.sql.tree.ExpressionTreeRewriter;
+import com.facebook.presto.sql.tree.LambdaExpression;
+import com.facebook.presto.sql.tree.QualifiedName;
 import com.facebook.presto.sql.tree.QualifiedNameReference;
+import com.facebook.presto.sql.tree.VariableReference;
 import com.facebook.presto.testing.LocalQueryRunner;
 import com.facebook.presto.testing.MaterializedResult;
 import com.google.common.collect.ImmutableList;
@@ -73,6 +76,7 @@ import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -94,6 +98,7 @@ import static com.facebook.presto.sql.planner.optimizations.CanonicalizeExpressi
 import static com.facebook.presto.sql.tree.BooleanLiteral.TRUE_LITERAL;
 import static com.facebook.presto.testing.TestingTaskContext.createTaskContext;
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 import static io.airlift.testing.Assertions.assertInstanceOf;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -388,27 +393,56 @@ public final class FunctionAssertions
         return results;
     }
 
+    private static class Context
+    {
+        Set<QualifiedName> lambdaVariableNames = new HashSet<>();
+    }
+
     public static Expression createExpression(String expression, Metadata metadata, Map<Symbol, Type> symbolTypes)
     {
         Expression parsedExpression = SQL_PARSER.createExpression(expression);
 
         final ExpressionAnalysis analysis = analyzeExpressionsWithSymbols(TEST_SESSION, metadata, SQL_PARSER, symbolTypes, ImmutableList.of(parsedExpression));
-        Expression rewrittenExpression = ExpressionTreeRewriter.rewriteWith(new ExpressionRewriter<Void>()
+        Expression rewrittenExpression = ExpressionTreeRewriter.rewriteWith(new ExpressionRewriter<Context>()
         {
             @Override
-            public Expression rewriteExpression(Expression node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
+            public Expression rewriteExpression(Expression node, Context context, ExpressionTreeRewriter<Context> treeRewriter)
             {
                 Expression rewrittenExpression = treeRewriter.defaultRewrite(node, context);
 
-                // cast expression if coercion is registered
-                Type coercion = analysis.getCoercion(node);
-                if (coercion != null) {
-                    rewrittenExpression = new Cast(rewrittenExpression, coercion.getTypeSignature().toString());
-                }
-
-                return rewrittenExpression;
+                return coerceIfNecessary(node, rewrittenExpression);
             }
-        }, parsedExpression);
+
+            @Override
+            public Expression rewriteLambdaExpression(LambdaExpression node, Context context, ExpressionTreeRewriter<Context> treeRewriter)
+            {
+                checkState(!context.lambdaVariableNames.contains(node.getArguments()), "name conflict for lambda expression");
+                context.lambdaVariableNames.addAll(node.getArguments());
+                Expression rewrittenExpression = treeRewriter.defaultRewrite(node, context);
+                context.lambdaVariableNames.remove(node.getArguments());
+                return coerceIfNecessary(node, rewrittenExpression);
+            }
+
+            @Override
+            public Expression rewriteQualifiedNameReference(QualifiedNameReference node, Context context, ExpressionTreeRewriter<Context> treeRewriter)
+            {
+                if (context.lambdaVariableNames.contains(node.getName())) {
+                    Expression rewrittenExpression = new VariableReference(node.getName());
+                    return coerceIfNecessary(node, rewrittenExpression);
+                }
+                return coerceIfNecessary(node, node);
+            }
+
+            private Expression coerceIfNecessary(Expression originalNode, Expression rewrittenNode)
+            {
+                // cast expression if coercion is registered
+                Type coercion = analysis.getCoercion(originalNode);
+                if (coercion != null) {
+                    rewrittenNode = new Cast(rewrittenNode, coercion.getTypeSignature().toString());
+                }
+                return rewrittenNode;
+            }
+        }, parsedExpression, new Context());
 
         return canonicalizeExpression(rewrittenExpression);
     }

@@ -48,6 +48,7 @@ import com.facebook.presto.sql.tree.InputReference;
 import com.facebook.presto.sql.tree.IntervalLiteral;
 import com.facebook.presto.sql.tree.IsNotNullPredicate;
 import com.facebook.presto.sql.tree.IsNullPredicate;
+import com.facebook.presto.sql.tree.LambdaExpression;
 import com.facebook.presto.sql.tree.LikePredicate;
 import com.facebook.presto.sql.tree.LogicalBinaryExpression;
 import com.facebook.presto.sql.tree.LongLiteral;
@@ -66,15 +67,20 @@ import com.facebook.presto.sql.tree.SubqueryExpression;
 import com.facebook.presto.sql.tree.SubscriptExpression;
 import com.facebook.presto.sql.tree.TimeLiteral;
 import com.facebook.presto.sql.tree.TimestampLiteral;
+import com.facebook.presto.sql.tree.VariableReference;
 import com.facebook.presto.sql.tree.WhenClause;
 import com.facebook.presto.sql.tree.WindowFrame;
+import com.facebook.presto.type.FunctionType;
 import com.facebook.presto.type.RowType;
+import com.facebook.presto.type.UnboundType;
+import com.facebook.presto.util.ImmutableCollectors;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 
 import javax.annotation.Nullable;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -109,6 +115,7 @@ import static com.facebook.presto.sql.tree.Extract.Field.TIMEZONE_HOUR;
 import static com.facebook.presto.sql.tree.Extract.Field.TIMEZONE_MINUTE;
 import static com.facebook.presto.type.ArrayParametricType.ARRAY;
 import static com.facebook.presto.type.RowType.RowField;
+import static com.facebook.presto.type.UnboundType.UNBOUND;
 import static com.facebook.presto.type.UnknownType.UNKNOWN;
 import static com.facebook.presto.util.DateTimeUtils.parseTimestampLiteral;
 import static com.facebook.presto.util.DateTimeUtils.timeHasTimeZone;
@@ -126,6 +133,7 @@ public class ExpressionAnalyzer
     private final TypeManager typeManager;
     private final Function<Node, StatementAnalyzer> statementAnalyzerFactory;
     private final Map<QualifiedName, Integer> resolvedNames = new HashMap<>();
+    private final Map<QualifiedName, Type> lambdaVariables = new HashMap<>();
     private final IdentityHashMap<FunctionCall, FunctionInfo> resolvedFunctions = new IdentityHashMap<>();
     private final IdentityHashMap<Expression, Type> expressionTypes = new IdentityHashMap<>();
     private final IdentityHashMap<Expression, Type> expressionCoercions = new IdentityHashMap<>();
@@ -278,6 +286,12 @@ public class ExpressionAnalyzer
         @Override
         protected Type visitQualifiedNameReference(QualifiedNameReference node, AnalysisContext context)
         {
+            if (lambdaVariables.containsKey(node.getName())) {
+                Type type = lambdaVariables.get(node.getName());
+                expressionTypes.put(node, type);
+                return type;
+            }
+
             List<Field> matches = tupleDescriptor.resolveFields(node.getName());
             if (matches.isEmpty()) {
                 // TODO This is kind of hacky, instead we should change the way QualifiedNameReferences are parsed
@@ -676,12 +690,46 @@ public class ExpressionAnalyzer
                 }
             }
 
-            ImmutableList.Builder<TypeSignature> argumentTypes = ImmutableList.builder();
-            for (Expression expression : node.getArguments()) {
-                argumentTypes.add(process(expression, context).getTypeSignature());
+            Type[] argumentTypes = new Type[node.getArguments().size()];
+            boolean lambdaExpressionExists = false;
+            for (int i = 0; i < node.getArguments().size(); i++) {
+                Expression expression = node.getArguments().get(i);
+                if (expression instanceof LambdaExpression) {
+                    LambdaExpression lambdaExpression = (LambdaExpression) expression;
+                    lambdaExpressionExists = true;
+
+                    argumentTypes[i] = new FunctionType(
+                            lambdaExpression.getArguments().stream()
+                                    .map(unused -> UNBOUND)
+                                    .collect(ImmutableCollectors.toImmutableList()),
+                            UNBOUND);
+                    continue;
+                }
+                argumentTypes[i] = process(expression, context);
             }
 
-            FunctionInfo function = functionRegistry.resolveFunction(node.getName(), argumentTypes.build(), context.isApproximate());
+            if (lambdaExpressionExists) {
+                ImmutableList<TypeSignature> typeSignatures = Arrays.stream(argumentTypes).map(Type::getTypeSignature).collect(ImmutableCollectors.toImmutableList());
+                List<? extends TypeSignature> partiallyResolvedTypeSignature = functionRegistry.resolveFunctionPartial(node.getName(), typeSignatures, context.isApproximate());
+                //TODO: null check
+                for (int i = 0; i < node.getArguments().size(); i++) {
+                    Expression expression = node.getArguments().get(i);
+                    if (expression instanceof LambdaExpression) {
+                        LambdaExpression lambdaExpression = (LambdaExpression) expression;
+                        TypeSignature partial = partiallyResolvedTypeSignature.get(i);
+                        checkArgument(FunctionType.NAME.equals(partial.getBase()), "lambda expression was resolved to unrecognized type: %s", partial.getBase());
+                        List<TypeSignature> parameters = partial.getParameters();
+                        for (int j = 0; j < parameters.size() - 1; j++) { // skip last type (type of return value)
+                            checkArgument(!UnboundType.NAME.equals(parameters.get(j).getBase()), "Argument types of Function type is not resolved: %s", partial);
+                            lambdaVariables.put(lambdaExpression.getArguments().get(j), typeManager.getType(parameters.get(j)));
+                        }
+                        argumentTypes[i] = process(expression, context);
+                    }
+                }
+            }
+            ImmutableList<TypeSignature> typeSignatures = Arrays.stream(argumentTypes).map(Type::getTypeSignature).collect(ImmutableCollectors.toImmutableList());
+            FunctionInfo function = functionRegistry.resolveFunction(node.getName(), typeSignatures, context.isApproximate());
+
             for (int i = 0; i < node.getArguments().size(); i++) {
                 Expression expression = node.getArguments().get(i);
                 Type type = typeManager.getType(function.getArgumentTypes().get(i));
@@ -696,6 +744,29 @@ public class ExpressionAnalyzer
             Type type = typeManager.getType(function.getReturnType());
             expressionTypes.put(node, type);
 
+            return type;
+        }
+
+        @Override
+        protected Type visitLambdaExpression(LambdaExpression node, AnalysisContext context)
+        {
+            process(node.getExpression(), context);
+
+            Type returnType = expressionTypes.get(node.getExpression());
+            List<Type> argumentType = node.getArguments().stream()
+                    .map(lambdaVariables::get)
+                    .collect(ImmutableCollectors.toImmutableList());
+            FunctionType type = new FunctionType(argumentType, returnType);
+            expressionTypes.put(node, type);
+            return type;
+        }
+
+        @Override
+        protected Type visitVariableReference(VariableReference node, AnalysisContext context)
+        {
+            checkArgument(lambdaVariables.containsKey(node.getName()));
+            Type type = lambdaVariables.get(node.getName());
+            expressionTypes.put(node, type);
             return type;
         }
 

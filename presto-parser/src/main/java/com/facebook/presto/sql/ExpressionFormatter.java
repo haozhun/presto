@@ -38,6 +38,7 @@ import com.facebook.presto.sql.tree.InputReference;
 import com.facebook.presto.sql.tree.IntervalLiteral;
 import com.facebook.presto.sql.tree.IsNotNullPredicate;
 import com.facebook.presto.sql.tree.IsNullPredicate;
+import com.facebook.presto.sql.tree.LambdaExpression;
 import com.facebook.presto.sql.tree.LikePredicate;
 import com.facebook.presto.sql.tree.LogicalBinaryExpression;
 import com.facebook.presto.sql.tree.LongLiteral;
@@ -56,6 +57,7 @@ import com.facebook.presto.sql.tree.SubqueryExpression;
 import com.facebook.presto.sql.tree.SubscriptExpression;
 import com.facebook.presto.sql.tree.TimeLiteral;
 import com.facebook.presto.sql.tree.TimestampLiteral;
+import com.facebook.presto.sql.tree.VariableReference;
 import com.facebook.presto.sql.tree.WhenClause;
 import com.facebook.presto.sql.tree.Window;
 import com.facebook.presto.sql.tree.WindowFrame;
@@ -271,6 +273,27 @@ public final class ExpressionFormatter
             }
 
             return builder.toString();
+        }
+
+        @Override
+        protected String visitLambdaExpression(LambdaExpression node, Boolean unmangleNames)
+        {
+            StringBuilder builder = new StringBuilder();
+            ImmutableList.Builder<String> parts = ImmutableList.builder();
+
+            builder.append('(');
+            node.getArguments().stream().map(Formatter::formatQualifiedName).forEach(parts::add);
+            Joiner.on(", ").appendTo(builder, parts.build());
+            builder.append(") -> {");
+            builder.append(process(node.getExpression(), unmangleNames));
+            builder.append('}');
+            return builder.toString();
+        }
+
+        @Override
+        protected String visitVariableReference(VariableReference node, Boolean context)
+        {
+            return formatQualifiedName(node.getName());
         }
 
         @Override
