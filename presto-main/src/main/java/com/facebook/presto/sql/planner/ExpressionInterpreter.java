@@ -14,6 +14,10 @@
 package com.facebook.presto.sql.planner;
 
 import com.facebook.presto.Session;
+import com.facebook.presto.byteCode.ByteCodeNode;
+import com.facebook.presto.byteCode.ClassDefinition;
+import com.facebook.presto.byteCode.MethodDefinition;
+import com.facebook.presto.byteCode.Scope;
 import com.facebook.presto.metadata.FunctionInfo;
 import com.facebook.presto.metadata.FunctionRegistry;
 import com.facebook.presto.metadata.Metadata;
@@ -30,7 +34,10 @@ import com.facebook.presto.sql.analyzer.AnalysisContext;
 import com.facebook.presto.sql.analyzer.ExpressionAnalyzer;
 import com.facebook.presto.sql.analyzer.SemanticException;
 import com.facebook.presto.sql.analyzer.TupleDescriptor;
+import com.facebook.presto.sql.gen.ByteCodeExpressionVisitor;
+import com.facebook.presto.sql.gen.CallSiteBinder;
 import com.facebook.presto.sql.planner.optimizations.CanonicalizeExpressions;
+import com.facebook.presto.sql.relational.RowExpression;
 import com.facebook.presto.sql.tree.ArithmeticBinaryExpression;
 import com.facebook.presto.sql.tree.ArithmeticUnaryExpression;
 import com.facebook.presto.sql.tree.ArrayConstructor;
@@ -50,6 +57,7 @@ import com.facebook.presto.sql.tree.InPredicate;
 import com.facebook.presto.sql.tree.InputReference;
 import com.facebook.presto.sql.tree.IsNotNullPredicate;
 import com.facebook.presto.sql.tree.IsNullPredicate;
+import com.facebook.presto.sql.tree.LambdaExpression;
 import com.facebook.presto.sql.tree.LikePredicate;
 import com.facebook.presto.sql.tree.Literal;
 import com.facebook.presto.sql.tree.LogicalBinaryExpression;
@@ -66,6 +74,7 @@ import com.facebook.presto.sql.tree.StringLiteral;
 import com.facebook.presto.sql.tree.SubscriptExpression;
 import com.facebook.presto.sql.tree.WhenClause;
 import com.facebook.presto.type.LikeFunctions;
+import com.facebook.presto.util.Reflection;
 import com.google.common.base.Functions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
@@ -75,6 +84,7 @@ import io.airlift.joni.Regex;
 import io.airlift.slice.Slice;
 
 import java.lang.invoke.MethodHandle;
+import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
@@ -83,13 +93,20 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
 
-import static com.facebook.presto.metadata.FunctionRegistry.canCoerce;
+import static com.facebook.presto.byteCode.Access.FINAL;
+import static com.facebook.presto.byteCode.Access.PUBLIC;
+import static com.facebook.presto.byteCode.Access.STATIC;
+import static com.facebook.presto.byteCode.Access.a;
+import static com.facebook.presto.byteCode.ParameterizedType.type;
 import static com.facebook.presto.spi.StandardErrorCode.NOT_SUPPORTED;
 import static com.facebook.presto.spi.type.TypeSignature.parseTypeSignature;
 import static com.facebook.presto.sql.analyzer.ExpressionAnalyzer.createConstantAnalyzer;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.EXPRESSION_NOT_CONSTANT;
+import static com.facebook.presto.sql.gen.CompilerUtils.defineClass;
+import static com.facebook.presto.sql.gen.CompilerUtils.makeClassName;
 import static com.facebook.presto.sql.planner.LiteralInterpreter.toExpression;
 import static com.facebook.presto.sql.planner.LiteralInterpreter.toExpressions;
+import static com.facebook.presto.sql.relational.SqlToRowExpressionTranslator.translate;
 import static com.facebook.presto.util.ImmutableCollectors.toImmutableList;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
@@ -102,7 +119,8 @@ public class ExpressionInterpreter
 {
     private final Expression expression;
     private final Metadata metadata;
-    private final ConnectorSession session;
+    private final ConnectorSession connectorSession;
+    private final Session session;
     private final boolean optimize;
     private final IdentityHashMap<Expression, Type> expressionTypes;
 
@@ -136,7 +154,7 @@ public class ExpressionInterpreter
         analyzer.analyze(expression, new TupleDescriptor(), new AnalysisContext());
 
         Type actualType = analyzer.getExpressionTypes().get(expression);
-        if (!canCoerce(actualType, expectedType)) {
+        if (!metadata.getFunctionRegistry().canCoerce(actualType, expectedType)) {
             throw new PrestoException(StandardErrorCode.INVALID_SESSION_PROPERTY, String.format("Can not set property of type %s to %s",
                     expectedType.getTypeSignature(),
                     actualType.getTypeSignature()));
@@ -203,7 +221,8 @@ public class ExpressionInterpreter
     {
         this.expression = expression;
         this.metadata = metadata;
-        this.session = session.toConnectorSession();
+        this.connectorSession = session.toConnectorSession();
+        this.session = session;
         this.expressionTypes = expressionTypes;
         this.optimize = optimize;
 
@@ -291,6 +310,34 @@ public class ExpressionInterpreter
         }
 
         @Override
+        protected Object visitLambdaExpression(LambdaExpression node, Object context)
+        {
+            RowExpression rowExpression = translate(node, expressionTypes, metadata.getFunctionRegistry(), metadata.getTypeManager(), session, false);
+            ClassDefinition classDefinition = new ClassDefinition(
+                    a(PUBLIC, FINAL),
+                    makeClassName("lambda"),
+                    type(Object.class));
+
+            classDefinition.declareDefaultConstructor(a(PUBLIC));
+
+            MethodDefinition method = classDefinition.declareMethod(a(STATIC, PUBLIC), "getLambda", type(MethodHandle.class));
+            Scope scope = method.getScope();
+
+            CallSiteBinder callSiteBinder = new CallSiteBinder();
+            ByteCodeExpressionVisitor visitor = new ByteCodeExpressionVisitor(callSiteBinder, ByteCodeExpressionVisitor.getLamdbaVariableReferenceCompiler(), metadata.getFunctionRegistry(), classDefinition);
+            ByteCodeNode byteCode = rowExpression.accept(visitor, scope);
+            method.getBody().append(byteCode)
+                    .ret(MethodHandle.class);
+            Class<?> lambdaClass = defineClass(classDefinition, Object.class, callSiteBinder.getBindings(), getClass().getClassLoader());
+            try {
+                return Reflection.method(lambdaClass, "getLambda").invoke(null);
+            }
+            catch (IllegalAccessException | InvocationTargetException e) {
+                throw Throwables.propagate(e);
+            }
+        }
+
+        @Override
         protected Object visitQualifiedNameReference(QualifiedNameReference node, Object context)
         {
             if (node.getName().getPrefix().isPresent()) {
@@ -305,7 +352,7 @@ public class ExpressionInterpreter
         @Override
         protected Object visitLiteral(Literal node, Object context)
         {
-            return LiteralInterpreter.evaluate(metadata, session, node);
+            return LiteralInterpreter.evaluate(metadata, connectorSession, node);
         }
 
         @Override
@@ -516,7 +563,7 @@ public class ExpressionInterpreter
 
                     MethodHandle handle = operatorInfo.getMethodHandle();
                     if (handle.type().parameterCount() > 0 && handle.type().parameterType(0) == ConnectorSession.class) {
-                        handle = handle.bindTo(session);
+                        handle = handle.bindTo(connectorSession);
                     }
                     try {
                         return handle.invokeWithArguments(value);
@@ -639,8 +686,8 @@ public class ExpressionInterpreter
                     OperatorType.EQUAL,
                     ImmutableList.of(commonType, commonType),
                     ImmutableList.of(
-                            invoke(session, firstCast.getMethodHandle(), ImmutableList.of(first)),
-                            invoke(session, secondCast.getMethodHandle(), ImmutableList.of(second))));
+                            invoke(connectorSession, firstCast.getMethodHandle(), ImmutableList.of(first)),
+                            invoke(connectorSession, secondCast.getMethodHandle(), ImmutableList.of(second))));
 
             if (equal) {
                 return null;
@@ -734,7 +781,7 @@ public class ExpressionInterpreter
             if (optimize && (!function.isDeterministic() || hasUnresolvedValue(argumentValues))) {
                 return new FunctionCall(node.getName(), node.getWindow(), node.isDistinct(), toExpressions(argumentValues, argumentTypes));
             }
-            return invoke(session, function.getMethodHandle(), argumentValues);
+            return invoke(connectorSession, function.getMethodHandle(), argumentValues);
         }
 
         @Override
@@ -851,7 +898,7 @@ public class ExpressionInterpreter
             FunctionInfo operatorInfo = metadata.getFunctionRegistry().getCoercion(expressionTypes.get(node.getExpression()), type);
 
             try {
-                return invoke(session, operatorInfo.getMethodHandle(), ImmutableList.of(value));
+                return invoke(connectorSession, operatorInfo.getMethodHandle(), ImmutableList.of(value));
             }
             catch (RuntimeException e) {
                 if (node.isSafe()) {
@@ -925,7 +972,7 @@ public class ExpressionInterpreter
         private Object invokeOperator(OperatorType operatorType, List<? extends Type> argumentTypes, List<Object> argumentValues)
         {
             FunctionInfo operatorInfo = metadata.resolveOperator(operatorType, argumentTypes);
-            return invoke(session, operatorInfo.getMethodHandle(), argumentValues);
+            return invoke(connectorSession, operatorInfo.getMethodHandle(), argumentValues);
         }
     }
 

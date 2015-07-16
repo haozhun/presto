@@ -69,6 +69,21 @@ public final class Expressions
                 }
 
                 @Override
+                public Void visitLambda(LambdaDefinitionExpression lambda, Void context)
+                {
+                    builder.add(lambda);
+                    lambda.getBody().accept(this, context);
+                    return null;
+                }
+
+                @Override
+                public Void visitVariableReference(VariableReferenceExpression reference, Void context)
+                {
+                    builder.add(reference);
+                    return null;
+                }
+
+                @Override
                 public Void visitInputReference(InputReferenceExpression reference, Void context)
                 {
                     builder.add(reference);

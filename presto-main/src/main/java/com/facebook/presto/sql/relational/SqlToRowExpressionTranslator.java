@@ -41,18 +41,21 @@ import com.facebook.presto.sql.tree.InputReference;
 import com.facebook.presto.sql.tree.IntervalLiteral;
 import com.facebook.presto.sql.tree.IsNotNullPredicate;
 import com.facebook.presto.sql.tree.IsNullPredicate;
+import com.facebook.presto.sql.tree.LambdaExpression;
 import com.facebook.presto.sql.tree.LikePredicate;
 import com.facebook.presto.sql.tree.LogicalBinaryExpression;
 import com.facebook.presto.sql.tree.LongLiteral;
 import com.facebook.presto.sql.tree.NotExpression;
 import com.facebook.presto.sql.tree.NullIfExpression;
 import com.facebook.presto.sql.tree.NullLiteral;
+import com.facebook.presto.sql.tree.QualifiedName;
 import com.facebook.presto.sql.tree.SearchedCaseExpression;
 import com.facebook.presto.sql.tree.SimpleCaseExpression;
 import com.facebook.presto.sql.tree.StringLiteral;
 import com.facebook.presto.sql.tree.SubscriptExpression;
 import com.facebook.presto.sql.tree.TimeLiteral;
 import com.facebook.presto.sql.tree.TimestampLiteral;
+import com.facebook.presto.sql.tree.VariableReference;
 import com.facebook.presto.sql.tree.WhenClause;
 import com.facebook.presto.type.UnknownType;
 import com.google.common.base.Preconditions;
@@ -245,6 +248,28 @@ public final class SqlToRowExpressionTranslator
                     BOOLEAN,
                     left,
                     right);
+        }
+
+        @Override
+        protected RowExpression visitVariableReference(VariableReference node, Void context)
+        {
+            return new VariableReferenceExpression(node.getName().getSuffix(), types.get(node));
+        }
+
+        @Override
+        protected RowExpression visitLambdaExpression(LambdaExpression node, Void context)
+        {
+            RowExpression body = process(node.getExpression(), context);
+
+            Type type = types.get(node);
+            List<Type> typeParameters = type.getTypeParameters();
+            List<Type> argumentTypes = typeParameters.subList(0, typeParameters.size() - 1);
+
+            ImmutableList<String> arguments = node.getArguments().stream()
+                    .map(QualifiedName::toString)
+                    .collect(toImmutableList());
+
+            return new LambdaDefinitionExpression(argumentTypes, arguments, body);
         }
 
         @Override

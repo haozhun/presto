@@ -83,6 +83,13 @@ public class TestArrayOperators
     }
 
     @Test
+    public void testArrayMap()
+            throws Exception
+    {
+        assertFunction("MAP(ARRAY ['hi', NULL, 'bye'], x -> {length(x)})", new ArrayType(BIGINT), asList(2L, null, 3L));
+    }
+
+    @Test
     public void testArrayElements()
             throws Exception
     {

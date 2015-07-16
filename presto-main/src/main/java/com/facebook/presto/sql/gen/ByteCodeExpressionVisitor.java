@@ -15,13 +15,29 @@ package com.facebook.presto.sql.gen;
 
 import com.facebook.presto.byteCode.Block;
 import com.facebook.presto.byteCode.ByteCodeNode;
+import com.facebook.presto.byteCode.ClassDefinition;
+import com.facebook.presto.byteCode.MethodDefinition;
+import com.facebook.presto.byteCode.Parameter;
 import com.facebook.presto.byteCode.Scope;
+import com.facebook.presto.byteCode.Variable;
 import com.facebook.presto.metadata.FunctionRegistry;
 import com.facebook.presto.sql.relational.CallExpression;
 import com.facebook.presto.sql.relational.ConstantExpression;
 import com.facebook.presto.sql.relational.InputReferenceExpression;
+import com.facebook.presto.sql.relational.LambdaDefinitionExpression;
 import com.facebook.presto.sql.relational.RowExpressionVisitor;
+import com.facebook.presto.sql.relational.VariableReferenceExpression;
+import com.facebook.presto.util.Reflection;
+import com.google.common.collect.ImmutableList;
 
+import java.lang.invoke.MethodHandle;
+import java.util.concurrent.atomic.AtomicLong;
+
+import static com.facebook.presto.byteCode.Access.PUBLIC;
+import static com.facebook.presto.byteCode.Access.STATIC;
+import static com.facebook.presto.byteCode.Access.a;
+import static com.facebook.presto.byteCode.Parameter.arg;
+import static com.facebook.presto.byteCode.ParameterizedType.type;
 import static com.facebook.presto.byteCode.expression.ByteCodeExpressions.constantTrue;
 import static com.facebook.presto.byteCode.instruction.Constant.loadBoolean;
 import static com.facebook.presto.byteCode.instruction.Constant.loadDouble;
@@ -41,18 +57,95 @@ import static com.facebook.presto.sql.relational.Signatures.SWITCH;
 public class ByteCodeExpressionVisitor
         implements RowExpressionVisitor<Scope, ByteCodeNode>
 {
+    private static final AtomicLong LAMBDA_ID = new AtomicLong();
+
     private final CallSiteBinder callSiteBinder;
     private final RowExpressionVisitor<Scope, ByteCodeNode> fieldReferenceCompiler;
     private final FunctionRegistry registry;
+    private final ClassDefinition classDefinition;
 
     public ByteCodeExpressionVisitor(
             CallSiteBinder callSiteBinder,
             RowExpressionVisitor<Scope, ByteCodeNode> fieldReferenceCompiler,
-            FunctionRegistry registry)
+            FunctionRegistry registry,
+            ClassDefinition classDefinition)
     {
         this.callSiteBinder = callSiteBinder;
         this.fieldReferenceCompiler = fieldReferenceCompiler;
         this.registry = registry;
+        this.classDefinition = classDefinition;
+    }
+
+    @Override
+    public ByteCodeNode visitLambda(LambdaDefinitionExpression lambda, Scope context)
+    {
+        ImmutableList.Builder<Parameter> parameters = ImmutableList.builder();
+        for (int i = 0; i < lambda.getArguments().size(); i++) {
+            parameters.add(arg(lambda.getArguments().get(i), lambda.getArgumentTypes().get(i).getJavaType()));
+        }
+        String lambdaName = "lambda" + LAMBDA_ID.getAndIncrement();
+        MethodDefinition method = classDefinition.declareMethod(a(PUBLIC, STATIC), lambdaName, type(lambda.getBody().getType().getJavaType()), parameters.build());
+
+        Scope scope = method.getScope();
+        Variable wasNull = scope.declareVariable(boolean.class, "wasNull");
+        ByteCodeExpressionVisitor bodyVisitor = new ByteCodeExpressionVisitor(callSiteBinder, getLamdbaVariableReferenceCompiler(), registry, classDefinition);
+        ByteCodeNode compiledBody = lambda.getBody().accept(bodyVisitor, scope);
+        method.getBody()
+                .putVariable(wasNull, false)
+                .append(compiledBody)
+                .ret(lambda.getBody().getType().getJavaType());
+
+        Block byteCodeBlock = new Block()
+                .push(classDefinition.getType())
+                .push(lambdaName)
+                .push(lambda.getArguments().size())
+                .newArray(Class.class);
+
+        for (int i = 0; i < lambda.getArguments().size(); i++) {
+            byteCodeBlock.dup()
+                    .push(i)
+                    .push(lambda.getArgumentTypes().get(i).getJavaType())
+                    .putObjectArrayElement();
+        }
+
+        byteCodeBlock.invokeStatic(Reflection.class, "methodHandle", MethodHandle.class, Class.class, String.class, Class[].class);
+
+        return byteCodeBlock;
+    }
+
+    public static RowExpressionVisitor<Scope, ByteCodeNode> getLamdbaVariableReferenceCompiler()
+    {
+        return new RowExpressionVisitor<Scope, ByteCodeNode>() {
+            @Override
+            public ByteCodeNode visitCall(CallExpression call, Scope context)
+            {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public ByteCodeNode visitLambda(LambdaDefinitionExpression lambda, Scope context)
+            {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public ByteCodeNode visitVariableReference(VariableReferenceExpression reference, Scope context)
+            {
+                return context.getVariable(reference.getName());
+            }
+
+            @Override
+            public ByteCodeNode visitInputReference(InputReferenceExpression reference, Scope context)
+            {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public ByteCodeNode visitConstant(ConstantExpression literal, Scope context)
+            {
+                throw new UnsupportedOperationException();
+            }
+        };
     }
 
     @Override
@@ -155,6 +248,12 @@ public class ByteCodeExpressionVisitor
                 .setDescription("constant " + constant.getType())
                 .comment(constant.toString())
                 .append(loadConstant(binding));
+    }
+
+    @Override
+    public ByteCodeNode visitVariableReference(VariableReferenceExpression reference, Scope scope)
+    {
+        return fieldReferenceCompiler.visitVariableReference(reference, scope);
     }
 
     @Override

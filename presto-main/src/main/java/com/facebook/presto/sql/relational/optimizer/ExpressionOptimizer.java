@@ -22,8 +22,10 @@ import com.facebook.presto.spi.type.TypeManager;
 import com.facebook.presto.sql.relational.CallExpression;
 import com.facebook.presto.sql.relational.ConstantExpression;
 import com.facebook.presto.sql.relational.InputReferenceExpression;
+import com.facebook.presto.sql.relational.LambdaDefinitionExpression;
 import com.facebook.presto.sql.relational.RowExpression;
 import com.facebook.presto.sql.relational.RowExpressionVisitor;
+import com.facebook.presto.sql.relational.VariableReferenceExpression;
 import com.facebook.presto.sql.tree.QualifiedName;
 import com.facebook.presto.type.UnknownType;
 import com.google.common.collect.Iterables;
@@ -77,6 +79,18 @@ public class ExpressionOptimizer
         public RowExpression visitConstant(ConstantExpression literal, Void context)
         {
             return literal;
+        }
+
+        @Override
+        public RowExpression visitLambda(LambdaDefinitionExpression lambda, Void context)
+        {
+            return lambda;
+        }
+
+        @Override
+        public RowExpression visitVariableReference(VariableReferenceExpression reference, Void context)
+        {
+            return reference;
         }
 
         @Override

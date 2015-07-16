@@ -16,6 +16,8 @@ package com.facebook.presto.sql.relational;
 public interface RowExpressionVisitor<C, R>
 {
     R visitCall(CallExpression call, C context);
+    R visitLambda(LambdaDefinitionExpression lambda, C context);
+    R visitVariableReference(VariableReferenceExpression reference, C context);
     R visitInputReference(InputReferenceExpression reference, C context);
     R visitConstant(ConstantExpression literal, C context);
 }
