@@ -90,6 +90,14 @@ public class TestArrayOperators
     }
 
     @Test
+    public void testArrayReduce()
+            throws Exception
+    {
+        assertFunction("REDUCE(ARRAY ['hi', NULL, 'bye'], (x,s) -> {greatest(length(x),s)}, 0)", BIGINT, 3L);
+        assertFunction("REDUCE(ARRAY ['hi', NULL, 'bye'], (x,s) -> {greatest(x,s)}, '')", VARCHAR, "hi");
+    }
+
+    @Test
     public void testArrayElements()
             throws Exception
     {
