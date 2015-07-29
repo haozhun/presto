@@ -163,6 +163,7 @@ public class SliceDictionaryStreamReader
             inDictionaryStream.getSetBits(nextBatchSize, inDictionary, isNullVector);
         }
 
+        /*
         if (useSharedByteArrayForDictionary) {
             // alternative 3 (as described below): make a copy upon read
             int startIndex = 0;
@@ -215,6 +216,7 @@ public class SliceDictionaryStreamReader
             }
         }
         else {
+        */
             // alternative 1 or 2 (as described below): reference dictionary directly
             for (int i = 0; i < nextBatchSize; i++) {
                 if (isNullVector[i]) {
@@ -227,7 +229,7 @@ public class SliceDictionaryStreamReader
                     sliceVector.vector[i] = rowGroupDictionary[dataVector[i]];
                 }
             }
-        }
+        //}
 
         readOffset = 0;
         nextBatchSize = 0;
