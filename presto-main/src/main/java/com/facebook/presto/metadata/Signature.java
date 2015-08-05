@@ -213,7 +213,7 @@ public final class Signature
     }
 
     @Nullable
-    public Map<String, Type> bindTypeParameters(List<? extends Type> types, boolean allowCoercion, FunctionRegistry functionRegistry, TypeManager typeManager)
+    public Map<String, Type> bindTypeParameters(List<? extends Type> types, boolean allowCoercion, TypeManager typeManager)
     {
         List<? extends TypeSignature> actualTypeSignatures = types.stream()
                 .map(Type::getTypeSignature)

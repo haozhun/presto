@@ -344,7 +344,7 @@ public class FunctionRegistry
         // search for exact match
         FunctionInfo match = null;
         for (ParametricFunction function : candidates) {
-            Map<String, Type> boundTypeParameters = function.getSignature().bindTypeParameters(resolvedTypes, false, this, typeManager);
+            Map<String, Type> boundTypeParameters = function.getSignature().bindTypeParameters(resolvedTypes, false, typeManager);
             if (boundTypeParameters != null) {
                 checkArgument(match == null, "Ambiguous call to %s with parameters %s", name, parameterTypes);
                 try {
@@ -362,7 +362,7 @@ public class FunctionRegistry
 
         // search for coerced match
         for (ParametricFunction function : candidates) {
-            Map<String, Type> boundTypeParameters = function.getSignature().bindTypeParameters(resolvedTypes, true, this, typeManager);
+            Map<String, Type> boundTypeParameters = function.getSignature().bindTypeParameters(resolvedTypes, true, typeManager);
             if (boundTypeParameters != null) {
                 // TODO: This should also check for ambiguities
                 try {
@@ -437,7 +437,7 @@ public class FunctionRegistry
                     if (!function.getSignature().getName().equals(name.toString())) {
                         continue;
                     }
-                    Map<String, Type> boundTypeParameters = function.getSignature().bindTypeParameters(resolvedTypes, false, this, typeManager);
+                    Map<String, Type> boundTypeParameters = function.getSignature().bindTypeParameters(resolvedTypes, false, typeManager);
                     if (boundTypeParameters != null) {
                         checkArgument(match == null, "Ambiguous call to %s with parameters %s", name, parameterTypes);
                         try {
