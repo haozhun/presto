@@ -180,6 +180,7 @@ import static com.facebook.presto.type.JsonPathType.JSON_PATH;
 import static com.facebook.presto.type.LikePatternType.LIKE_PATTERN;
 import static com.facebook.presto.type.RegexpType.REGEXP;
 import static com.facebook.presto.type.TypeUtils.resolveTypes;
+import static com.facebook.presto.type.UnboundType.UNBOUND;
 import static com.facebook.presto.type.UnknownType.UNKNOWN;
 import static com.facebook.presto.util.ImmutableCollectors.toImmutableList;
 import static com.facebook.presto.util.ImmutableCollectors.toImmutableSet;
@@ -529,15 +530,22 @@ public class FunctionRegistry
         return true;
     }
 
-    private static boolean canCastTypeBase(String fromTypeBase, String toTypeBase)
+    private static boolean canCastTypeBase(String fromTypeBase, String toTypeBase, boolean allowCoercion)
     {
         // canCastTypeBase and isCovariantParameterPosition defines all hand-coded rules for type coercion.
         // Other methods should reference these two functions instead of hand-code new rules.
 
-        if (UNKNOWN.NAME.equals(fromTypeBase)) {
+        if (UNBOUND.NAME.equals(fromTypeBase)) {
             return true;
         }
         if (toTypeBase.equals(fromTypeBase)) {
+            return true;
+        }
+        if (!allowCoercion) {
+            return false;
+        }
+
+        if (UNKNOWN.NAME.equals(fromTypeBase)) {
             return true;
         }
         switch (fromTypeBase) {
@@ -567,12 +575,17 @@ public class FunctionRegistry
 
     public static boolean canCoerce(Type actualType, Type expectedType)
     {
-        return canCoerce(actualType.getTypeSignature(), expectedType.getTypeSignature());
+        return canCoerce(actualType, expectedType, true);
     }
 
-    public static boolean canCoerce(TypeSignature actualTypeTypeSignature, TypeSignature expectedTypeTypeSignature)
+    public static boolean canCoerce(Type actualType, Type expectedType, boolean allowCoercion)
     {
-        Optional<TypeSignature> commonSuperTypeSignature = getCommonSuperTypeSignature(actualTypeTypeSignature, expectedTypeTypeSignature);
+        return canCoerce(actualType.getTypeSignature(), expectedType.getTypeSignature(), allowCoercion);
+    }
+
+    public static boolean canCoerce(TypeSignature actualTypeTypeSignature, TypeSignature expectedTypeTypeSignature, boolean allowCoercion)
+    {
+        Optional<TypeSignature> commonSuperTypeSignature = getCommonSuperTypeSignature(actualTypeTypeSignature, expectedTypeTypeSignature, allowCoercion);
         if (commonSuperTypeSignature.isPresent()) {
             return commonSuperTypeSignature.get().equals(expectedTypeTypeSignature);
         }
@@ -597,27 +610,32 @@ public class FunctionRegistry
 
     public Optional<Type> getCommonSuperType(Type firstType, Type secondType)
     {
-        Optional<TypeSignature> commonSuperTypeSignature = getCommonSuperTypeSignature(firstType.getTypeSignature(), secondType.getTypeSignature());
+        return getCommonSuperType(firstType, secondType, true);
+    }
+
+    public Optional<Type> getCommonSuperType(Type firstType, Type secondType, boolean allowCoercion)
+    {
+        Optional<TypeSignature> commonSuperTypeSignature = getCommonSuperTypeSignature(firstType.getTypeSignature(), secondType.getTypeSignature(), allowCoercion);
         return commonSuperTypeSignature.map(typeManager::getType);
     }
 
-    public static Optional<String> getCommonSuperTypeBase(String firstTypeBase, String secondTypeBase)
+    public static Optional<String> getCommonSuperTypeBase(String firstTypeBase, String secondTypeBase, boolean allowCoercion)
     {
-        if (canCastTypeBase(firstTypeBase, secondTypeBase)) {
+        if (canCastTypeBase(firstTypeBase, secondTypeBase, allowCoercion)) {
             return Optional.of(secondTypeBase);
         }
-        if (canCastTypeBase(secondTypeBase, firstTypeBase)) {
+        if (canCastTypeBase(secondTypeBase, firstTypeBase, allowCoercion)) {
             return Optional.of(firstTypeBase);
         }
         return Optional.empty();
     }
 
-    public static Optional<TypeSignature> getCommonSuperTypeSignature(List<? extends TypeSignature> typeSignatures)
+    public static Optional<TypeSignature> getCommonSuperTypeSignature(List<? extends TypeSignature> typeSignatures, boolean allowCoercion)
     {
         checkArgument(!typeSignatures.isEmpty(), "typeSignatures is empty");
         TypeSignature superTypeSignature = UNKNOWN.getTypeSignature();
         for (TypeSignature typeSignature : typeSignatures) {
-            Optional<TypeSignature> commonSuperTypeSignature = getCommonSuperTypeSignature(superTypeSignature, typeSignature);
+            Optional<TypeSignature> commonSuperTypeSignature = getCommonSuperTypeSignature(superTypeSignature, typeSignature, allowCoercion);
             if (!commonSuperTypeSignature.isPresent()) {
                 return Optional.empty();
             }
@@ -626,15 +644,17 @@ public class FunctionRegistry
         return Optional.of(superTypeSignature);
     }
 
-    public static Optional<TypeSignature> getCommonSuperTypeSignature(TypeSignature firstType, TypeSignature secondType)
+    public static Optional<TypeSignature> getCommonSuperTypeSignature(TypeSignature firstType, TypeSignature secondType, boolean allowCoercion)
     {
         // Special handling for UnknownType is necessary because we forbid cast between types with different number of type parameters.
         // Without this, cast between map<bigint, bigint> and unknown will not be allowed.
-        if (UNKNOWN.NAME.equals(firstType.getBase())) {
-            return Optional.of(secondType);
-        }
-        if (UNKNOWN.NAME.equals(secondType.getBase())) {
-            return Optional.of(firstType);
+        if (allowCoercion) {
+            if (UNKNOWN.NAME.equals(firstType.getBase())) {
+                return Optional.of(secondType);
+            }
+            if (UNKNOWN.NAME.equals(secondType.getBase())) {
+                return Optional.of(firstType);
+            }
         }
 
         List<TypeSignature> firstTypeTypeParameters = firstType.getParameters();
@@ -643,26 +663,19 @@ public class FunctionRegistry
             return Optional.empty();
         }
 
-        Optional<String> commonSuperTypeBase = getCommonSuperTypeBase(firstType.getBase(), secondType.getBase());
+        Optional<String> commonSuperTypeBase = getCommonSuperTypeBase(firstType.getBase(), secondType.getBase(), allowCoercion);
         if (!commonSuperTypeBase.isPresent()) {
             return Optional.empty();
         }
 
         ImmutableList.Builder<TypeSignature> typeParameters = ImmutableList.builder();
         for (int i = 0; i < firstTypeTypeParameters.size(); i++) {
-            if (isCovariantParameterPosition(commonSuperTypeBase.get(), i)) {
-                Optional<TypeSignature> commonSuperType = getCommonSuperTypeSignature(firstTypeTypeParameters.get(i), secondTypeTypeParameters.get(i));
-                if (!commonSuperType.isPresent()) {
-                    return Optional.empty();
-                }
-                typeParameters.add(commonSuperType.get());
+            boolean isCovariantParameterPosition = isCovariantParameterPosition(commonSuperTypeBase.get(), i);
+            Optional<TypeSignature> commonSuperType = getCommonSuperTypeSignature(firstTypeTypeParameters.get(i), secondTypeTypeParameters.get(i), allowCoercion && isCovariantParameterPosition);
+            if (!commonSuperType.isPresent()) {
+                return Optional.empty();
             }
-            else {
-                if (!firstTypeTypeParameters.get(i).equals(secondTypeTypeParameters.get(i))) {
-                    return Optional.empty();
-                }
-                typeParameters.add(firstTypeTypeParameters.get(i));
-            }
+            typeParameters.add(commonSuperType.get());
         }
 
         return Optional.of(new TypeSignature(commonSuperTypeBase.get(), typeParameters.build(), firstType.getLiteralParameters()));

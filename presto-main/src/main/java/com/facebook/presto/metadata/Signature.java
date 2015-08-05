@@ -258,6 +258,22 @@ public final class Signature
         return boundParameters;
     }
 
+    @Nullable
+    public List<? extends TypeSignature> bindUnboundArguments(List<? extends TypeSignature> types, boolean allowCoercion, TypeManager typeManager)
+    {
+        ImmutableMap.Builder<String, TypeParameter> builder = ImmutableMap.builder();
+        for (TypeParameter parameter : typeParameters) {
+            builder.put(parameter.getName(), parameter);
+        }
+
+        TypeUnification.TypeUnificationResult unificationResult = TypeUnification.unify(builder.build(), argumentTypes, types, allowCoercion, false, typeManager);
+        if (unificationResult == null) {
+            return null;
+        }
+
+        return unificationResult.getResolvedArguments();
+    }
+
     /*
      * similar to T extends MyClass<?...>, if Java supported varargs wildcards
      */

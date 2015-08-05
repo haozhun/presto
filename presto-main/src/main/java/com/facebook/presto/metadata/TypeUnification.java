@@ -31,6 +31,7 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import static com.facebook.presto.metadata.FunctionRegistry.canCoerce;
 import static com.facebook.presto.metadata.FunctionRegistry.getCommonSuperTypeSignature;
 import static com.facebook.presto.metadata.FunctionRegistry.isCovariantParameterPosition;
 import static com.google.common.collect.Iterables.getOnlyElement;
@@ -426,13 +427,14 @@ final class TypeUnification
                 resolvedTypeSignature = getOnlyElement(concreteConstraints).typeSignature;
             }
             else {
-                Optional<TypeSignature> commonSuperTypeSignature = getCommonSuperTypeSignature(concreteConstraints.stream()
+                ImmutableList<TypeSignature> typeConstraintsSignatures = concreteConstraints.stream()
                         .map(typeConstraint -> typeConstraint.typeSignature)
-                        .collect(ImmutableCollectors.toImmutableList()));
+                        .collect(ImmutableCollectors.toImmutableList());
+                Optional<TypeSignature> commonSuperTypeSignature = getCommonSuperTypeSignature(typeConstraintsSignatures, true);
                 checkCondition(commonSuperTypeSignature.isPresent());
                 resolvedTypeSignature = commonSuperTypeSignature.get();
                 for (TypeConstraint concreteConstraint : concreteConstraints) {
-                    checkCondition(concreteConstraint.canCoerce || resolvedTypeSignature.equals(concreteConstraint.typeSignature));
+                    checkCondition(canCoerce(concreteConstraint.typeSignature, resolvedTypeSignature, concreteConstraint.canCoerce));
                 }
             }
             Type resolvedType = typeManager.getType(resolvedTypeSignature);

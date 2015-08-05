@@ -13,10 +13,12 @@
  */
 package com.facebook.presto.metadata;
 
-import com.facebook.presto.block.BlockEncodingManager;
 import com.facebook.presto.spi.type.StandardTypes;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spi.type.TypeManager;
+import com.facebook.presto.type.ArrayType;
+import com.facebook.presto.type.FunctionType;
+import com.facebook.presto.type.MapType;
 import com.facebook.presto.type.TypeDeserializer;
 import com.facebook.presto.type.TypeRegistry;
 import com.fasterxml.jackson.databind.JsonDeserializer;
@@ -37,6 +39,7 @@ import static com.facebook.presto.spi.type.DoubleType.DOUBLE;
 import static com.facebook.presto.spi.type.HyperLogLogType.HYPER_LOG_LOG;
 import static com.facebook.presto.spi.type.TypeSignature.parseTypeSignature;
 import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
+import static com.facebook.presto.type.UnboundType.UNBOUND;
 import static com.facebook.presto.type.UnknownType.UNKNOWN;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotNull;
@@ -161,5 +164,20 @@ public class TestSignature
         assertNotNull(boundParameters);
         assertEquals(boundParameters.get("T"), BIGINT);
         assertNull(signature.bindTypeParameters(ImmutableList.of(BIGINT, VARCHAR), true, functionRegistry, typeManager));
+    }
+
+    @Test
+    public void testUnbound()
+            throws Exception
+    {
+        Signature signature = new Signature("foo", ImmutableList.of(typeParameter("T"), typeParameter("U")), "U", ImmutableList.of("array<T>", "function<T,U>"), true, true);
+        assertEquals(signature.bindTypeParameters(ImmutableList.of(new ArrayType(DOUBLE), new FunctionType(ImmutableList.of(UNBOUND), UNBOUND)), false, typeManager),
+                ImmutableMap.of("T", DOUBLE, "U", UNBOUND));
+        assertEquals(signature.bindUnboundArguments(ImmutableList.of(parseTypeSignature("array<double>"), parseTypeSignature("function<unbound,unbound>")), false, typeManager),
+                ImmutableList.of(parseTypeSignature("array<double>"), parseTypeSignature("function<double,unbound>")));
+        assertNull(signature.bindTypeParameters(ImmutableList.of(new ArrayType(DOUBLE), new FunctionType(ImmutableList.of(UNBOUND, UNBOUND), UNBOUND)), false, typeManager));
+        assertNull(signature.bindUnboundArguments(ImmutableList.of(parseTypeSignature("array<double>"), parseTypeSignature("function<unbound,unbound,unbound>")), false, typeManager));
+        assertNull(signature.bindTypeParameters(ImmutableList.of(new ArrayType(DOUBLE), new MapType(DOUBLE, DOUBLE)), false, typeManager));
+        assertNull(signature.bindUnboundArguments(ImmutableList.of(parseTypeSignature("array<double>"), parseTypeSignature("map<double,double>")), false, typeManager));
     }
 }
