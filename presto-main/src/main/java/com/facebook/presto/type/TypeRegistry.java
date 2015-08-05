@@ -50,6 +50,7 @@ import static com.facebook.presto.type.LikePatternType.LIKE_PATTERN;
 import static com.facebook.presto.type.MapParametricType.MAP;
 import static com.facebook.presto.type.RegexpType.REGEXP;
 import static com.facebook.presto.type.RowParametricType.ROW;
+import static com.facebook.presto.type.UnboundType.UNBOUND;
 import static com.facebook.presto.type.UnknownType.UNKNOWN;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -74,6 +75,7 @@ public final class TypeRegistry
 
         // Manually register UNKNOWN type without a verifyTypeClass call since it is a special type that can not be used by functions
         this.types.put(UNKNOWN.getTypeSignature(), UNKNOWN);
+        this.types.put(UNBOUND.getTypeSignature(), UNBOUND);
 
         // always add the built-in types; Presto will not function without these
         addType(BOOLEAN);

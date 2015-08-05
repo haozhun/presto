@@ -21,20 +21,15 @@ import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockBuilder;
 import com.facebook.presto.spi.type.AbstractFixedWidthType;
 import com.facebook.presto.spi.type.StandardTypes;
-import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.type.TypeRegistry;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
-
-import java.util.Set;
 
 import static com.facebook.presto.block.BlockAssertions.createDoublesBlock;
 import static com.facebook.presto.block.BlockAssertions.createStringsBlock;
 import static com.facebook.presto.operator.aggregation.AggregationTestUtils.assertAggregation;
 import static com.facebook.presto.spi.type.TypeSignature.parseTypeSignature;
-import static com.facebook.presto.util.ImmutableCollectors.toImmutableSet;
 import static io.airlift.slice.SizeOf.SIZE_OF_DOUBLE;
-import static org.testng.Assert.assertNotNull;
 
 public class TestMinByAggregation
 {
@@ -44,21 +39,6 @@ public class TestMinByAggregation
     public void setup()
     {
         ((TypeRegistry) metadata.getTypeManager()).addType(CustomDoubleType.CUSTOM_DOUBLE);
-    }
-
-    @Test
-    public void testAllRegistered()
-    {
-        Set<Type> orderableTypes = metadata.getTypeManager()
-                .getTypes().stream()
-                .filter(Type::isOrderable)
-                .collect(toImmutableSet());
-
-        for (Type keyType : orderableTypes) {
-            for (Type valueType : metadata.getTypeManager().getTypes()) {
-                assertNotNull(metadata.getExactFunction(new Signature("min_by", valueType.getTypeSignature(), valueType.getTypeSignature(), keyType.getTypeSignature())));
-            }
-        }
     }
 
     @Test
