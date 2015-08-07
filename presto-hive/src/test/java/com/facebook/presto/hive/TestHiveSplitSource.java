@@ -24,7 +24,6 @@ import java.util.concurrent.TimeUnit;
 
 import static io.airlift.concurrent.MoreFutures.getFutureValue;
 import static org.testng.Assert.assertEquals;
-import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertSame;
 import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
@@ -57,31 +56,6 @@ public class TestHiveSplitSource
     }
 
     @Test
-    public void testSuspendResume()
-            throws Exception
-    {
-        TestingHiveSplitLoader splitLoader = new TestingHiveSplitLoader();
-        HiveSplitSource hiveSplitSource = new HiveSplitSource("test", 10, splitLoader);
-
-        // almost fill the source
-        for (int i = 0; i < 9; i++) {
-            hiveSplitSource.addToQueue(new TestSplit(i));
-            assertEquals(hiveSplitSource.getOutstandingSplitCount(), i + 1);
-            assertFalse(splitLoader.isResumed());
-        }
-
-        // add one more split so the source is now full
-        hiveSplitSource.addToQueue(new TestSplit(10));
-        assertEquals(hiveSplitSource.getOutstandingSplitCount(), 10);
-        assertFalse(splitLoader.isResumed());
-
-        // remove one split so the source is no longer full and verify the loader is resumed
-        assertEquals(getFutureValue(hiveSplitSource.getNextBatch(1)).size(), 1);
-        assertEquals(hiveSplitSource.getOutstandingSplitCount(), 9);
-        assertTrue(splitLoader.isResumed());
-    }
-
-    @Test
     public void testFail()
             throws Exception
     {
@@ -109,15 +83,15 @@ public class TestHiveSplitSource
         catch (RuntimeException e) {
             assertEquals(e.getMessage(), "test");
         }
-        assertEquals(hiveSplitSource.getOutstandingSplitCount(), 4);
+        assertEquals(hiveSplitSource.getOutstandingSplitCount(), 3);
 
         // attempt to add another split and verify it does not work
         hiveSplitSource.addToQueue(new TestSplit(99));
-        assertEquals(hiveSplitSource.getOutstandingSplitCount(), 4);
+        assertEquals(hiveSplitSource.getOutstandingSplitCount(), 3);
 
         // fail source again
         hiveSplitSource.fail(new RuntimeException("another failure"));
-        assertEquals(hiveSplitSource.getOutstandingSplitCount(), 4);
+        assertEquals(hiveSplitSource.getOutstandingSplitCount(), 3);
 
         // try to remove a split and verify we got the first exception
         try {
@@ -181,27 +155,14 @@ public class TestHiveSplitSource
     private static class TestingHiveSplitLoader
             implements HiveSplitLoader
     {
-        private boolean resumed;
-
         @Override
         public void start(HiveSplitSource splitSource)
         {
         }
 
         @Override
-        public void resume()
-        {
-            resumed = true;
-        }
-
-        @Override
         public void stop()
         {
-        }
-
-        public boolean isResumed()
-        {
-            return resumed;
         }
     }
 
