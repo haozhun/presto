@@ -838,7 +838,7 @@ class QueryPlanner
             }
             else {
                 long limitValue = Long.parseLong(limit.get());
-                return new PlanBuilder(subPlan.getTranslations(), new LimitNode(idAllocator.getNextId(), subPlan.getRoot(), limitValue), subPlan.getSampleWeight());
+                return new PlanBuilder(subPlan.getTranslations(), new LimitNode(idAllocator.getNextId(), subPlan.getRoot(), limitValue, false), subPlan.getSampleWeight());
             }
         }
 
