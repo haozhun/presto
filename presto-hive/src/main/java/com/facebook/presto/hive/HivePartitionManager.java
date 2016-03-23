@@ -13,7 +13,8 @@
  */
 package com.facebook.presto.hive;
 
-import com.facebook.presto.hive.metastore.HiveMetastore;
+import com.facebook.presto.hive.metastore.ExtendedHiveMetastore;
+import com.facebook.presto.hive.metastore.Table;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.ConnectorTableHandle;
@@ -31,7 +32,6 @@ import com.google.common.collect.Maps;
 import io.airlift.slice.Slice;
 import org.apache.hadoop.hive.common.FileUtils;
 import org.apache.hadoop.hive.metastore.ProtectMode;
-import org.apache.hadoop.hive.metastore.api.Table;
 import org.joda.time.DateTimeZone;
 
 import javax.inject.Inject;
@@ -91,7 +91,7 @@ public class HivePartitionManager
         this.domainCompactionThreshold = domainCompactionThreshold;
     }
 
-    public HivePartitionResult getPartitions(ConnectorSession session, HiveMetastore metastore, ConnectorTableHandle tableHandle, TupleDomain<ColumnHandle> effectivePredicate)
+    public HivePartitionResult getPartitions(ConnectorSession session, ExtendedHiveMetastore metastore, ConnectorTableHandle tableHandle, TupleDomain<ColumnHandle> effectivePredicate)
     {
         HiveTableHandle hiveTableHandle = checkType(tableHandle, HiveTableHandle.class, "tableHandle");
         requireNonNull(effectivePredicate, "effectivePredicate is null");
@@ -177,7 +177,7 @@ public class HivePartitionManager
         return Optional.of(builder.build());
     }
 
-    private Table getTable(HiveMetastore metastore, SchemaTableName tableName)
+    private Table getTable(ExtendedHiveMetastore metastore, SchemaTableName tableName)
     {
         Optional<Table> target = metastore.getTable(tableName.getSchemaName(), tableName.getTableName());
         if (!target.isPresent()) {
@@ -198,7 +198,7 @@ public class HivePartitionManager
         return table;
     }
 
-    private List<String> getFilteredPartitionNames(HiveMetastore metastore, SchemaTableName tableName, List<HiveColumnHandle> partitionKeys, TupleDomain<ColumnHandle> effectivePredicate)
+    private List<String> getFilteredPartitionNames(ExtendedHiveMetastore metastore, SchemaTableName tableName, List<HiveColumnHandle> partitionKeys, TupleDomain<ColumnHandle> effectivePredicate)
     {
         checkArgument(effectivePredicate.getDomains().isPresent());
 

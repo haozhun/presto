@@ -203,7 +203,7 @@ public class TestHiveIntegrationSmokeTest
         assertEquals(tableMetadata.getMetadata().getProperties().get(PARTITIONED_BY_PROPERTY), partitionedBy);
         for (ColumnMetadata columnMetadata : tableMetadata.getColumns()) {
             boolean partitionKey = partitionedBy.contains(columnMetadata.getName());
-            assertEquals(columnMetadata.getComment(), annotateColumnComment(null, partitionKey));
+            assertEquals(columnMetadata.getComment(), annotateColumnComment(Optional.empty(), partitionKey));
         }
 
         MaterializedResult result = computeActual("SELECT * from test_partitioned_table");
@@ -300,7 +300,7 @@ public class TestHiveIntegrationSmokeTest
         assertEquals(tableMetadata.getMetadata().getProperties().get(PARTITIONED_BY_PROPERTY), partitionedBy);
         for (ColumnMetadata columnMetadata : tableMetadata.getColumns()) {
             boolean partitionKey = partitionedBy.contains(columnMetadata.getName());
-            assertEquals(columnMetadata.getComment(), annotateColumnComment(null, partitionKey));
+            assertEquals(columnMetadata.getComment(), annotateColumnComment(Optional.empty(), partitionKey));
         }
 
         List<?> partitions = getPartitions("test_create_partitioned_table_as");

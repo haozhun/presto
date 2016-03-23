@@ -14,7 +14,10 @@
 package com.facebook.presto.hive;
 
 import com.facebook.presto.hive.HiveWriteUtils.FieldSetter;
-import com.facebook.presto.hive.metastore.HiveMetastore;
+import com.facebook.presto.hive.metastore.ExtendedHiveMetastore;
+import com.facebook.presto.hive.metastore.Partition;
+import com.facebook.presto.hive.metastore.StorageFormat;
+import com.facebook.presto.hive.metastore.Table;
 import com.facebook.presto.spi.ConnectorPageSink;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.PageIndexer;
@@ -40,10 +43,6 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.common.FileUtils;
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.hive.metastore.MetaStoreUtils;
-import org.apache.hadoop.hive.metastore.api.Partition;
-import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
-import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.ql.exec.FileSinkOperator.RecordWriter;
 import org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat;
 import org.apache.hadoop.hive.serde2.SerDeException;
@@ -86,6 +85,8 @@ import static com.facebook.presto.hive.HiveType.toHiveTypes;
 import static com.facebook.presto.hive.HiveWriteUtils.createFieldSetter;
 import static com.facebook.presto.hive.HiveWriteUtils.getField;
 import static com.facebook.presto.hive.HiveWriteUtils.getRowColumnInspectors;
+import static com.facebook.presto.hive.metastore.MetastoreUtil.getSchema;
+import static com.facebook.presto.hive.metastore.MetastoreUtil.getTableMetadata;
 import static com.facebook.presto.spi.StandardErrorCode.NOT_FOUND;
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -128,7 +129,7 @@ public class HivePageSink
     private final LocationService locationService;
     private final String filePrefix;
 
-    private final HiveMetastore metastore;
+    private final ExtendedHiveMetastore metastore;
     private final PageIndexer pageIndexer;
     private final TypeManager typeManager;
     private final HdfsEnvironment hdfsEnvironment;
@@ -158,7 +159,7 @@ public class HivePageSink
             LocationService locationService,
             String filePrefix,
             Optional<HiveBucketProperty> bucketProperty,
-            HiveMetastore metastore,
+            ExtendedHiveMetastore metastore,
             PageIndexerFactory pageIndexerFactory,
             TypeManager typeManager,
             HdfsEnvironment hdfsEnvironment,
@@ -459,13 +460,7 @@ public class HivePageSink
                     }
                     isNew = false;
                 }
-                schema = MetaStoreUtils.getSchema(
-                        table.getSd(),
-                        table.getSd(),
-                        table.getParameters(),
-                        schemaName,
-                        tableName,
-                        table.getPartitionKeys());
+                schema = getTableMetadata(table);
                 target = locationService.targetPath(locationHandle, partitionName);
                 write = locationService.writePath(locationHandle, partitionName).orElse(target);
             }
@@ -494,10 +489,10 @@ public class HivePageSink
             // Append to an existing partition
             HiveWriteUtils.checkPartitionIsWritable(partitionName.get(), partition.get());
 
-            StorageDescriptor storageDescriptor = partition.get().getSd();
-            outputFormat = storageDescriptor.getOutputFormat();
-            serDe = storageDescriptor.getSerdeInfo().getSerializationLib();
-            schema = MetaStoreUtils.getSchema(partition.get(), table);
+            StorageFormat storageFormat = partition.get().getStorage().getStorageFormat();
+            outputFormat = storageFormat.getOutputFormat();
+            serDe = storageFormat.getSerDe();
+            schema = getSchema(partition.get(), table);
 
             target = locationService.targetPath(locationHandle, partition.get(), partitionName.get());
             write = locationService.writePath(locationHandle, partitionName).orElse(target);

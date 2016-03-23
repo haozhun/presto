@@ -13,8 +13,11 @@
  */
 package com.facebook.presto.hive;
 
+import com.facebook.presto.hive.metastore.BridgingHiveMetastore;
 import com.facebook.presto.hive.metastore.CachingHiveMetastore;
+import com.facebook.presto.hive.metastore.ExtendedHiveMetastore;
 import com.facebook.presto.hive.metastore.HiveMetastore;
+import com.facebook.presto.hive.metastore.ThriftHiveMetastore;
 import com.facebook.presto.hive.orc.DwrfPageSourceFactory;
 import com.facebook.presto.hive.orc.OrcPageSourceFactory;
 import com.facebook.presto.hive.parquet.ParquetPageSourceFactory;
@@ -81,10 +84,12 @@ public class HiveClientModule
             binder.bind(HiveMetastore.class).toInstance(metastore);
         }
         else {
-            binder.bind(HiveMetastore.class).to(CachingHiveMetastore.class).in(Scopes.SINGLETON);
-            newExporter(binder).export(HiveMetastore.class)
-                    .as(generatedNameOf(CachingHiveMetastore.class, connectorId));
+            binder.bind(HiveMetastore.class).to(ThriftHiveMetastore.class).in(Scopes.SINGLETON);
         }
+        binder.bind(ExtendedHiveMetastore.class).annotatedWith(ForCachingHiveMetastore.class).to(BridgingHiveMetastore.class).in(Scopes.SINGLETON);
+        binder.bind(ExtendedHiveMetastore.class).to(CachingHiveMetastore.class).in(Scopes.SINGLETON);
+        newExporter(binder).export(ExtendedHiveMetastore.class)
+                .as(generatedNameOf(CachingHiveMetastore.class, connectorId));
 
         binder.bind(NamenodeStats.class).in(Scopes.SINGLETON);
         newExporter(binder).export(NamenodeStats.class).as(generatedNameOf(NamenodeStats.class));
@@ -132,7 +137,7 @@ public class HiveClientModule
         return newCachedThreadPool(daemonThreadsNamed("hive-" + hiveClientId + "-%s"));
     }
 
-    @ForHiveMetastore
+    @ForCachingHiveMetastore
     @Singleton
     @Provides
     public ExecutorService createCachingHiveMetastoreExecutor(HiveConnectorId hiveClientId, HiveClientConfig hiveClientConfig)

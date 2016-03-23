@@ -13,31 +13,43 @@
  */
 package com.facebook.presto.hive.metastore;
 
+import com.facebook.presto.hive.HiveType;
 import org.apache.hadoop.hive.metastore.api.Database;
-import org.apache.hadoop.hive.metastore.api.Partition;
+import org.apache.hadoop.hive.metastore.api.PrincipalPrivilegeSet;
 import org.apache.hadoop.hive.metastore.api.PrivilegeGrantInfo;
-import org.apache.hadoop.hive.metastore.api.Table;
 import org.weakref.jmx.Managed;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
 import static org.apache.hadoop.hive.metastore.api.PrincipalType.ROLE;
 import static org.apache.hadoop.hive.metastore.api.PrincipalType.USER;
 
-public interface HiveMetastore
+public interface ExtendedHiveMetastore
 {
     String DEFAULT_DATABASE_NAME = "default";
 
-    void createTable(Table table);
+    @Managed
+    void flushCache();
+
+    void createTable(Table table, PrincipalPrivilegeSet principalPrivilegeSet);
 
     void dropTable(String databaseName, String tableName);
 
-    void alterTable(String databaseName, String tableName, Table table);
+    /**
+     * This should only be used if the semantic here is drop and add. Trying to
+     * alter one field of a table object previously acquired from getTable is
+     * probably not what you want.
+     */
+    void alterTable(String databaseName, String tableName, Table newTable, PrincipalPrivilegeSet principalPrivilegeSet);
 
-    @Managed
-    void flushCache();
+    void renameTable(String databaseName, String tableName, String newDatabaseName, String newTableName);
+
+    void addColumn(String databaseName, String tableName, String columnName, HiveType columnType, String columnComment);
+
+    void renameColumn(String databaseName, String tableName, String oldColumnName, String newColumnName);
 
     List<String> getAllDatabases();
 
@@ -64,7 +76,7 @@ public interface HiveMetastore
 
     Optional<Partition> getPartition(String databaseName, String tableName, String partitionName);
 
-    List<Partition> getPartitionsByNames(String databaseName, String tableName, List<String> partitionNames);
+    Map<String, Optional<Partition>> getPartitionsByNames(String databaseName, String tableName, List<String> partitionNames);
 
     Optional<Table> getTable(String databaseName, String tableName);
 
