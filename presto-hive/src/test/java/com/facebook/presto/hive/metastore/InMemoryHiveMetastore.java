@@ -271,6 +271,17 @@ public class InMemoryHiveMetastore
     }
 
     @Override
+    public void alterPartition(String databaseName, String tableName, Partition partition)
+    {
+        Optional<Table> table = getTable(databaseName, tableName);
+        if (!table.isPresent()) {
+            throw new TableNotFoundException(new SchemaTableName(databaseName, tableName));
+        }
+        String partitionName = createPartitionName(partition, table.get());
+        this.partitions.put(PartitionName.partition(databaseName, tableName, partitionName), partition);
+    }
+
+    @Override
     public void dropPartition(String databaseName, String tableName, List<String> parts)
     {
         for (Entry<PartitionName, Partition> entry : partitions.entrySet()) {

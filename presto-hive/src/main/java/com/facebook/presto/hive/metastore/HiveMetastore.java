@@ -54,6 +54,8 @@ public interface HiveMetastore
      */
     void addPartitions(String databaseName, String tableName, List<Partition> partitions);
 
+    void alterPartition(String databaseName, String tableName, Partition partition);
+
     void dropPartition(String databaseName, String tableName, List<String> parts);
 
     void dropPartitionByName(String databaseName, String tableName, String partitionName);

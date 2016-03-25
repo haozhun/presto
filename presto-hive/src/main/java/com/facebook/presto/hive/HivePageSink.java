@@ -14,7 +14,7 @@
 package com.facebook.presto.hive;
 
 import com.facebook.presto.hive.HiveWriteUtils.FieldSetter;
-import com.facebook.presto.hive.metastore.ExtendedHiveMetastore;
+import com.facebook.presto.hive.metastore.HiveMetastoreGetOnly;
 import com.facebook.presto.hive.metastore.Partition;
 import com.facebook.presto.hive.metastore.StorageFormat;
 import com.facebook.presto.hive.metastore.Table;
@@ -129,7 +129,7 @@ public class HivePageSink
     private final LocationService locationService;
     private final String filePrefix;
 
-    private final ExtendedHiveMetastore metastore;
+    private final HiveMetastoreGetOnly metastore;
     private final PageIndexer pageIndexer;
     private final TypeManager typeManager;
     private final HdfsEnvironment hdfsEnvironment;
@@ -159,7 +159,7 @@ public class HivePageSink
             LocationService locationService,
             String filePrefix,
             Optional<HiveBucketProperty> bucketProperty,
-            ExtendedHiveMetastore metastore,
+            HiveMetastoreGetOnly metastore,
             PageIndexerFactory pageIndexerFactory,
             TypeManager typeManager,
             HdfsEnvironment hdfsEnvironment,

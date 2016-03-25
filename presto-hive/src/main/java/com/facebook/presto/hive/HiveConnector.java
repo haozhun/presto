@@ -145,7 +145,7 @@ public class HiveConnector
     @Override
     public boolean isSingleStatementWritesOnly()
     {
-        return true;
+        return false;
     }
 
     @Override
@@ -162,7 +162,11 @@ public class HiveConnector
     @Override
     public void commit(ConnectorTransactionHandle transaction)
     {
-        checkArgument(transactionManager.remove(transaction) != null, "no such transaction: %s", transaction);
+        HiveMetadata metadata = (HiveMetadata) transactionManager.remove(transaction);
+        checkArgument(metadata != null, "no such transaction: %s", transaction);
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+            metadata.commit();
+        }
     }
 
     @Override

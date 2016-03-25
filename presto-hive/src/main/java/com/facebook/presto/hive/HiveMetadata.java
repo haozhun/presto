@@ -17,6 +17,7 @@ import com.facebook.presto.hadoop.HadoopFileStatus;
 import com.facebook.presto.hive.metastore.ExtendedHiveMetastore;
 import com.facebook.presto.hive.metastore.FieldSchema;
 import com.facebook.presto.hive.metastore.Partition;
+import com.facebook.presto.hive.metastore.SemiTransactionalHiveMetastore;
 import com.facebook.presto.hive.metastore.StorageFormat;
 import com.facebook.presto.hive.metastore.Table;
 import com.facebook.presto.spi.ColumnHandle;
@@ -140,7 +141,7 @@ public class HiveMetadata
     private final boolean allowAddColumn;
     private final boolean allowRenameColumn;
     private final boolean allowCorruptWritesForTesting;
-    private final ExtendedHiveMetastore metastore;
+    private final SemiTransactionalHiveMetastore metastore;
     private final HdfsEnvironment hdfsEnvironment;
     private final HivePartitionManager partitionManager;
     private final DateTimeZone timeZone;
@@ -156,7 +157,7 @@ public class HiveMetadata
 
     public HiveMetadata(
             String connectorId,
-            ExtendedHiveMetastore metastore,
+            SemiTransactionalHiveMetastore metastore,
             HdfsEnvironment hdfsEnvironment,
             HivePartitionManager partitionManager,
             DateTimeZone timeZone,
@@ -543,6 +544,7 @@ public class HiveMetadata
                 tableName,
                 columnHandles,
                 session.getQueryId(),
+                metastore.generatePartitionPatch(schemaTableName),
                 locationService.forNewTable(session.getQueryId(), schemaName, tableName),
                 tableStorageFormat,
                 respectTableFormat ? tableStorageFormat : defaultStorageFormat,
@@ -655,6 +657,7 @@ public class HiveMetadata
                 tableName.getTableName(),
                 handles,
                 session.getQueryId(),
+                metastore.generatePartitionPatch(tableName),
                 locationService.forExistingTable(session.getQueryId(), table.get()),
                 table.get().getStorage().getBucketProperty(),
                 tableStorageFormat,
@@ -1427,5 +1430,10 @@ public class HiveMetadata
         if (rollbackAction != null) {
             rollbackAction.run();
         }
+    }
+
+    public void commit()
+    {
+        metastore.commit();
     }
 }

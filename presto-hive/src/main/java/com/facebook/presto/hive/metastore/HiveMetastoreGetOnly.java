@@ -11,20 +11,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.hive;
+package com.facebook.presto.hive.metastore;
 
-import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Parameters;
-import org.testng.annotations.Test;
+import java.util.List;
+import java.util.Optional;
 
-@Test
-public class TestHiveClient
-        extends AbstractTestHiveClient
+public interface HiveMetastoreGetOnly
 {
-    @Parameters({"hive.cdh5.metastoreHost", "hive.cdh5.metastorePort", "hive.cdh5.databaseName", "hive.cdh5.timeZone"})
-    @BeforeClass
-    public void initialize(String host, int port, String databaseName, String timeZone)
-    {
-        setup(host, port, databaseName, timeZone);
-    }
+    Optional<Table> getTable(String databaseName, String tableName);
+
+    Optional<Partition> getPartition(String databaseName, String tableName, List<String> partitionValues);
 }

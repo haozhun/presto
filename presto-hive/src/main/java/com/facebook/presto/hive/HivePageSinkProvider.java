@@ -14,6 +14,7 @@
 package com.facebook.presto.hive;
 
 import com.facebook.presto.hive.metastore.ExtendedHiveMetastore;
+import com.facebook.presto.hive.metastore.HiveMetastoreWithPatch;
 import com.facebook.presto.spi.ConnectorInsertTableHandle;
 import com.facebook.presto.spi.ConnectorOutputTableHandle;
 import com.facebook.presto.spi.ConnectorPageSink;
@@ -90,7 +91,7 @@ public class HivePageSinkProvider
                 locationService,
                 handle.getFilePrefix(),
                 handle.getBucketProperty(),
-                metastore,
+                new HiveMetastoreWithPatch(handle.getSingleTablePatch(), metastore),
                 pageIndexerFactory,
                 typeManager,
                 hdfsEnvironment,

@@ -130,6 +130,13 @@ public class CachingHiveMetastoreStats
 
     @Managed
     @Nested
+    public HiveMetastoreApiStats getAlterPartition()
+    {
+        return dropPartition;
+    }
+
+    @Managed
+    @Nested
     public HiveMetastoreApiStats getDropPartition()
     {
         return dropPartition;

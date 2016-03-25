@@ -32,6 +32,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import static com.facebook.presto.hive.HiveUtil.PRESTO_VIEW_FLAG;
+import static com.facebook.presto.hive.metastore.MetastoreUtil.toMetastoreApiPartition;
 import static com.facebook.presto.hive.metastore.MetastoreUtil.toMetastoreApiTable;
 import static java.util.Objects.requireNonNull;
 import static java.util.function.UnaryOperator.identity;
@@ -177,6 +178,12 @@ public class BridgingHiveMetastore
                 partitions.stream()
                         .map(MetastoreUtil::toMetastoreApiPartition)
                         .collect(Collectors.toList()));
+    }
+
+    @Override
+    public void alterPartition(String databaseName, String tableName, Partition partition)
+    {
+        delegate.alterPartition(databaseName, tableName, toMetastoreApiPartition(partition));
     }
 
     @Override

@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.hive;
 
+import com.facebook.presto.hive.metastore.HiveMetastoreSingleTablePatch;
 import com.facebook.presto.spi.ConnectorOutputTableHandle;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -40,6 +41,7 @@ public class HiveOutputTableHandle
             @JsonProperty("tableName") String tableName,
             @JsonProperty("inputColumns") List<HiveColumnHandle> inputColumns,
             @JsonProperty("filePrefix") String filePrefix,
+            @JsonProperty("singleTablePatch") HiveMetastoreSingleTablePatch singleTablePatch,
             @JsonProperty("locationHandle") LocationHandle locationHandle,
             @JsonProperty("tableStorageFormat") HiveStorageFormat tableStorageFormat,
             @JsonProperty("partitionStorageFormat") HiveStorageFormat partitionStorageFormat,
@@ -54,6 +56,7 @@ public class HiveOutputTableHandle
                 tableName,
                 inputColumns,
                 filePrefix,
+                singleTablePatch,
                 locationHandle,
                 bucketProperty,
                 tableStorageFormat,

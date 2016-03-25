@@ -14,6 +14,7 @@
 package com.facebook.presto.hive;
 
 import com.facebook.presto.hive.metastore.ExtendedHiveMetastore;
+import com.facebook.presto.hive.metastore.SemiTransactionalHiveMetastore;
 import com.facebook.presto.spi.type.TypeManager;
 import io.airlift.concurrent.BoundedExecutor;
 import io.airlift.json.JsonCodec;
@@ -135,7 +136,7 @@ public class HiveMetadataFactory
     {
         return new HiveMetadata(
                 connectorId,
-                metastore,
+                new SemiTransactionalHiveMetastore(metastore),
                 hdfsEnvironment,
                 partitionManager,
                 timeZone,

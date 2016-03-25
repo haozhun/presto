@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.hive;
 
+import com.facebook.presto.hive.metastore.HiveMetastoreSingleTablePatch;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
 
@@ -28,6 +29,7 @@ public class HiveWritableTableHandle
     private final String tableName;
     private final List<HiveColumnHandle> inputColumns;
     private final String filePrefix;
+    private HiveMetastoreSingleTablePatch singleTablePatch;
     private final LocationHandle locationHandle;
     private final Optional<HiveBucketProperty> bucketProperty;
     private final HiveStorageFormat tableStorageFormat;
@@ -39,6 +41,7 @@ public class HiveWritableTableHandle
             String tableName,
             List<HiveColumnHandle> inputColumns,
             String filePrefix,
+            HiveMetastoreSingleTablePatch singleTablePatch,
             LocationHandle locationHandle,
             Optional<HiveBucketProperty> bucketProperty,
             HiveStorageFormat tableStorageFormat,
@@ -49,6 +52,7 @@ public class HiveWritableTableHandle
         this.tableName = requireNonNull(tableName, "tableName is null");
         this.inputColumns = ImmutableList.copyOf(requireNonNull(inputColumns, "inputColumns is null"));
         this.filePrefix = requireNonNull(filePrefix, "filePrefix is null");
+        this.singleTablePatch = requireNonNull(singleTablePatch, "singleTablePatch is null");
         this.locationHandle = requireNonNull(locationHandle, "locationHandle is null");
         this.bucketProperty = requireNonNull(bucketProperty, "bucketProperty is null");
         this.tableStorageFormat = requireNonNull(tableStorageFormat, "tableStorageFormat is null");
@@ -83,6 +87,12 @@ public class HiveWritableTableHandle
     public String getFilePrefix()
     {
         return filePrefix;
+    }
+
+    @JsonProperty
+    public HiveMetastoreSingleTablePatch getSingleTablePatch()
+    {
+        return singleTablePatch;
     }
 
     @JsonProperty

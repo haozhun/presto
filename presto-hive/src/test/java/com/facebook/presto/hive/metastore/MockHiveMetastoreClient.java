@@ -224,6 +224,13 @@ public class MockHiveMetastoreClient
     }
 
     @Override
+    public void alterPartition(String databaseName, String tableName, Partition partition)
+            throws TException
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public boolean dropPartition(String databaseName, String tableName, List<String> partitionValues, boolean deleteData)
     {
         throw new UnsupportedOperationException();

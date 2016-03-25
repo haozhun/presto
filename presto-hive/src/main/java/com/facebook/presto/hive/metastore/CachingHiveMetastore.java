@@ -445,6 +445,17 @@ public class CachingHiveMetastore
     }
 
     @Override
+    public void alterPartition(String databaseName, String tableName, Partition partition)
+    {
+        try {
+            delegate.alterPartition(databaseName, tableName, partition);
+        }
+        finally {
+            invalidatePartitionCache(databaseName, tableName);
+        }
+    }
+
+    @Override
     public void dropPartition(String databaseName, String tableName, List<String> parts)
     {
         try {
