@@ -279,6 +279,7 @@
                     <!-- integration tests take a very long time so only run them in the CI server -->
                     <excludes>
                         <exclude>**/TestHiveDistributedQueries.java</exclude>
+                        <exclude>**/TestHiveDistributedQueriesBucketed.java</exclude>
                     </excludes>
                 </configuration>
             </plugin>
