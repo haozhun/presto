@@ -33,8 +33,6 @@ import io.airlift.log.Logger;
 
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 import static com.facebook.presto.spi.transaction.IsolationLevel.READ_UNCOMMITTED;
 import static com.facebook.presto.spi.transaction.IsolationLevel.checkConnectorSupports;
@@ -58,7 +56,7 @@ public class HiveConnector
     private final ConnectorAccessControl accessControl;
     private final ClassLoader classLoader;
 
-    private final ConcurrentMap<ConnectorTransactionHandle, HiveMetadata> transactions = new ConcurrentHashMap<>();
+    private final TransactionManager transactionManager;
 
     public HiveConnector(
             LifeCycleManager lifeCycleManager,
@@ -71,6 +69,7 @@ public class HiveConnector
             List<PropertyMetadata<?>> sessionProperties,
             List<PropertyMetadata<?>> tableProperties,
             ConnectorAccessControl accessControl,
+            TransactionManager transactionManager,
             ClassLoader classLoader)
     {
         this.lifeCycleManager = requireNonNull(lifeCycleManager, "lifeCycleManager is null");
@@ -83,13 +82,14 @@ public class HiveConnector
         this.sessionProperties = ImmutableList.copyOf(requireNonNull(sessionProperties, "sessionProperties is null"));
         this.tableProperties = ImmutableList.copyOf(requireNonNull(tableProperties, "tableProperties is null"));
         this.accessControl = requireNonNull(accessControl, "accessControl is null");
+        this.transactionManager = requireNonNull(transactionManager, "transactionManager is null");
         this.classLoader = requireNonNull(classLoader, "classLoader is null");
     }
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorTransactionHandle transaction)
     {
-        ConnectorMetadata metadata = transactions.get(transaction);
+        ConnectorMetadata metadata = transactionManager.get(transaction);
         checkArgument(metadata != null, "no such transaction: %s", transaction);
         return new ClassLoaderSafeConnectorMetadata(metadata, classLoader);
     }
@@ -154,7 +154,7 @@ public class HiveConnector
         checkConnectorSupports(READ_UNCOMMITTED, isolationLevel);
         ConnectorTransactionHandle transaction = new HiveTransactionHandle();
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
-            transactions.put(transaction, metadataFactory.create());
+            transactionManager.put(transaction, metadataFactory.create());
         }
         return transaction;
     }
@@ -162,13 +162,13 @@ public class HiveConnector
     @Override
     public void commit(ConnectorTransactionHandle transaction)
     {
-        checkArgument(transactions.remove(transaction) != null, "no such transaction: %s", transaction);
+        checkArgument(transactionManager.remove(transaction) != null, "no such transaction: %s", transaction);
     }
 
     @Override
     public void rollback(ConnectorTransactionHandle transaction)
     {
-        HiveMetadata metadata = transactions.remove(transaction);
+        HiveMetadata metadata = (HiveMetadata) transactionManager.remove(transaction);
         checkArgument(metadata != null, "no such transaction: %s", transaction);
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
             metadata.rollback();

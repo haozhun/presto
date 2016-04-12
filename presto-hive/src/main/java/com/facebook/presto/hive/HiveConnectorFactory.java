@@ -130,6 +130,7 @@ public class HiveConnectorFactory
 
             LifeCycleManager lifeCycleManager = injector.getInstance(LifeCycleManager.class);
             HiveMetadataFactory metadataFactory = injector.getInstance(HiveMetadataFactory.class);
+            TransactionManager transactionManager = injector.getInstance(TransactionManager.class);
             ConnectorSplitManager splitManager = injector.getInstance(ConnectorSplitManager.class);
             ConnectorPageSourceProvider connectorPageSource = injector.getInstance(ConnectorPageSourceProvider.class);
             ConnectorPageSinkProvider pageSinkProvider = injector.getInstance(ConnectorPageSinkProvider.class);
@@ -149,6 +150,7 @@ public class HiveConnectorFactory
                     hiveSessionProperties.getSessionProperties(),
                     hiveTableProperties.getTableProperties(),
                     accessControl,
+                    transactionManager,
                     classLoader);
         }
         catch (Exception e) {

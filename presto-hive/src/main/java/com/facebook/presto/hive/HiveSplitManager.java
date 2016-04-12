@@ -46,6 +46,7 @@ import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.function.Function;
 
 import static com.facebook.presto.hive.HiveErrorCode.HIVE_INVALID_METADATA;
 import static com.facebook.presto.hive.HiveErrorCode.HIVE_METASTORE_ERROR;
@@ -72,7 +73,7 @@ public class HiveSplitManager
     public static final String PRESTO_OFFLINE = "presto_offline";
 
     private final String connectorId;
-    private final ExtendedHiveMetastore metastore;
+    private final Function<HiveTransactionHandle, ExtendedHiveMetastore> metastoreProvider;
     private final NamenodeStats namenodeStats;
     private final HdfsEnvironment hdfsEnvironment;
     private final DirectoryLister directoryLister;
@@ -87,14 +88,14 @@ public class HiveSplitManager
     public HiveSplitManager(
             HiveConnectorId connectorId,
             HiveClientConfig hiveClientConfig,
-            ExtendedHiveMetastore metastore,
+            Function<HiveTransactionHandle, ExtendedHiveMetastore> metastoreProvider,
             NamenodeStats namenodeStats,
             HdfsEnvironment hdfsEnvironment,
             DirectoryLister directoryLister,
             @ForHiveClient ExecutorService executorService)
     {
         this(connectorId,
-                metastore,
+                metastoreProvider,
                 namenodeStats,
                 hdfsEnvironment,
                 directoryLister,
@@ -109,7 +110,7 @@ public class HiveSplitManager
 
     public HiveSplitManager(
             HiveConnectorId connectorId,
-            ExtendedHiveMetastore metastore,
+            Function<HiveTransactionHandle, ExtendedHiveMetastore> metastoreProvider,
             NamenodeStats namenodeStats,
             HdfsEnvironment hdfsEnvironment,
             DirectoryLister directoryLister,
@@ -121,7 +122,7 @@ public class HiveSplitManager
             boolean recursiveDfsWalkerEnabled)
     {
         this.connectorId = requireNonNull(connectorId, "connectorId is null").toString();
-        this.metastore = requireNonNull(metastore, "metastore is null");
+        this.metastoreProvider = requireNonNull(metastoreProvider, "metastore is null");
         this.namenodeStats = requireNonNull(namenodeStats, "namenodeStats is null");
         this.hdfsEnvironment = requireNonNull(hdfsEnvironment, "hdfsEnvironment is null");
         this.directoryLister = requireNonNull(directoryLister, "directoryLister is null");
@@ -152,6 +153,7 @@ public class HiveSplitManager
         // sort partitions
         partitions = Ordering.natural().onResultOf(HivePartition::getPartitionId).reverse().sortedCopy(partitions);
 
+        ExtendedHiveMetastore metastore = metastoreProvider.apply((HiveTransactionHandle) transaction);
         Optional<Table> table = metastore.getTable(tableName.getSchemaName(), tableName.getTableName());
         if (!table.isPresent()) {
             throw new TableNotFoundException(tableName);
