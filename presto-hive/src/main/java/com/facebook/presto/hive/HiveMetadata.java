@@ -18,6 +18,7 @@ import com.facebook.presto.hive.metastore.ExtendedHiveMetastore;
 import com.facebook.presto.hive.metastore.FieldSchema;
 import com.facebook.presto.hive.metastore.Partition;
 import com.facebook.presto.hive.metastore.SemiTransactionalHiveMetastore;
+import com.facebook.presto.hive.metastore.SemiTransactionalHiveMetastore.RenameRequest;
 import com.facebook.presto.hive.metastore.StorageFormat;
 import com.facebook.presto.hive.metastore.Table;
 import com.facebook.presto.spi.ColumnHandle;
@@ -604,7 +605,7 @@ public class HiveMetadata
                 }
                 partitionUpdates.stream()
                         .map(partitionUpdate -> createPartition(table, partitionUpdate))
-                        .forEach(partitionCommitter::addPartition);
+                        .forEach((partition) -> partitionCommitter.addPartition(partition, Optional.empty()));
             }
             partitionCommitter.flush();
         }
@@ -667,6 +668,7 @@ public class HiveMetadata
         return result;
     }
 
+    /*
     private static class PartitionCommitter
     {
         private final String schemaName;
@@ -725,6 +727,50 @@ public class HiveMetadata
             batch.clear();
         }
     }
+    */
+    private static class PartitionCommitter
+    {
+        private final String schemaName;
+        private final String tableName;
+        private final SemiTransactionalHiveMetastore metastore;
+        private final List<Partition> createdPartitions = new ArrayList<>();
+
+        public PartitionCommitter(String schemaName, String tableName, SemiTransactionalHiveMetastore metastore, int ignored)
+        {
+            this.schemaName = schemaName;
+            this.tableName = tableName;
+            this.metastore = metastore;
+        }
+
+        public List<Partition> getCreatedPartitions()
+        {
+            return ImmutableList.copyOf(createdPartitions);
+        }
+
+        public void addPartition(Partition partition, Optional<RenameRequest> renameRequest)
+        {
+            metastore.addPartition(schemaName, tableName, partition, renameRequest);
+            createdPartitions.add(partition);
+        }
+
+        public void flush()
+        {
+            // do nothing
+        }
+
+        public void abort()
+        {
+            // drop created partitions
+            for (Partition createdPartition : getCreatedPartitions()) {
+                try {
+                    metastore.dropPartition(schemaName, tableName, createdPartition.getValues());
+                }
+                catch (Exception e) {
+                    log.error(e, "Error rolling back new partition '%s' in table '%s.%s", createdPartition.getValues(), schemaName, tableName);
+                }
+            }
+        }
+    }
 
     @Override
     public void finishInsert(ConnectorSession session, ConnectorInsertTableHandle insertHandle, Collection<Slice> fragments)
@@ -753,19 +799,18 @@ public class HiveMetadata
             for (PartitionUpdate partitionUpdate : partitionUpdates) {
                 if (!partitionUpdate.getName().isEmpty() && partitionUpdate.isNew()) {
                     // move data to final location
+                    Optional<RenameRequest> renameRequest = Optional.empty();
                     if (!partitionUpdate.getWritePath().equals(partitionUpdate.getTargetPath())) {
-                        renameDirectory(hdfsEnvironment,
-                                table.get().getDatabaseName(),
-                                table.get().getTableName(),
+                        renameRequest = Optional.of(new RenameRequest(
                                 new Path(partitionUpdate.getWritePath()),
-                                new Path(partitionUpdate.getTargetPath()));
+                                new Path(partitionUpdate.getTargetPath())));
                     }
                     // add new partition
                     Partition partition = createPartition(table.get(), partitionUpdate);
                     if (!partition.getStorage().getStorageFormat().getInputFormat().equals(handle.getPartitionStorageFormat().getInputFormat()) && respectTableFormat) {
                         throw new PrestoException(HIVE_CONCURRENT_MODIFICATION_DETECTED, "Partition format changed during insert");
                     }
-                    partitionCommitter.addPartition(partition);
+                    partitionCommitter.addPartition(partition, renameRequest);
                 }
                 else {
                     // move data to final location

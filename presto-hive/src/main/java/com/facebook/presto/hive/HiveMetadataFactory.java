@@ -136,7 +136,7 @@ public class HiveMetadataFactory
     {
         return new HiveMetadata(
                 connectorId,
-                new SemiTransactionalHiveMetastore(metastore),
+                new SemiTransactionalHiveMetastore(hdfsEnvironment, metastore),
                 hdfsEnvironment,
                 partitionManager,
                 timeZone,

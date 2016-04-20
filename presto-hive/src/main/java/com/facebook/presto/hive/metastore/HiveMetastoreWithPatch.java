@@ -14,6 +14,7 @@
 package com.facebook.presto.hive.metastore;
 
 import com.facebook.presto.hive.metastore.SemiTransactionalHiveMetastore.Action;
+import com.facebook.presto.hive.metastore.SemiTransactionalHiveMetastore.PartitionAndMore;
 import com.facebook.presto.spi.SchemaTableName;
 
 import java.util.List;
@@ -29,7 +30,7 @@ public class HiveMetastoreWithPatch
     private final ExtendedHiveMetastore delegate;
     private final SchemaTableName schemaTableName;
     private final Optional<Table> table;
-    private final Optional<Map<List<String>, Action<Partition>>> partitionActions;
+    private final Optional<Map<List<String>, Action<PartitionAndMore>>> partitionActions;
 
     public HiveMetastoreWithPatch(HiveMetastoreSingleTablePatch patch, ExtendedHiveMetastore delegate)
     {

@@ -23,6 +23,7 @@ import com.facebook.presto.metadata.TableMetadata;
 import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.ConnectorTableLayoutHandle;
 import com.facebook.presto.spi.Constraint;
+import com.facebook.presto.spi.type.BigintType;
 import com.facebook.presto.testing.MaterializedResult;
 import com.facebook.presto.testing.MaterializedRow;
 import com.facebook.presto.testing.QueryRunner;
@@ -30,6 +31,7 @@ import com.facebook.presto.tests.AbstractTestIntegrationSmokeTest;
 import com.facebook.presto.tests.DistributedQueryRunner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
+import io.airlift.testing.Assertions;
 import org.intellij.lang.annotations.Language;
 import org.joda.time.DateTime;
 import org.testng.annotations.Test;
@@ -49,8 +51,10 @@ import static com.facebook.presto.hive.HiveTableProperties.CLUSTERED_BY_PROPERTY
 import static com.facebook.presto.hive.HiveTableProperties.PARTITIONED_BY_PROPERTY;
 import static com.facebook.presto.hive.HiveTableProperties.STORAGE_FORMAT_PROPERTY;
 import static com.facebook.presto.hive.HiveUtil.annotateColumnComment;
+import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
 import static com.facebook.presto.testing.MaterializedResult.resultBuilder;
+import static com.facebook.presto.tests.QueryAssertions.assertEqualsIgnoreOrder;
 import static com.facebook.presto.transaction.TransactionBuilder.transaction;
 import static io.airlift.tpch.TpchTable.ORDERS;
 import static java.lang.String.format;
@@ -840,6 +844,47 @@ public class TestHiveIntegrationSmokeTest
         assertQuery(
                 "SELECT a[1]['a'], a[2]['d'] FROM tmp_complex1",
                 "SELECT 2.0, 14.0");
+    }
+
+    @Test
+    public void testDeleteAndInsert()
+    {
+        Session session = getSession();
+        //Metadata metadata = ((DistributedQueryRunner) queryRunner).getCoordinator().getMetadata();
+
+        assertUpdate(
+                session,
+                "CREATE TABLE tmp_delete_insert WITH (partitioned_by=array ['z']) AS " +
+                        "SELECT * from (VALUES (CAST (10 AS BIGINT), CAST (1 AS BIGINT)), (20, 2), (21, 2)) t(a, z)",
+                3);
+
+        List<MaterializedRow> expectedBefore = MaterializedResult.resultBuilder(session, BIGINT, BIGINT)
+                .row(10L, 1L)
+                .row(20L, 2L)
+                .row(21L, 2L)
+                .build()
+                .getMaterializedRows();
+        List<MaterializedRow> expectedAfter = MaterializedResult.resultBuilder(session, BIGINT, BIGINT)
+                .row(10L, 1L)
+                .row(200L, 2L)
+                .row(201L, 2L)
+                .row(202L, 2L)
+                .build()
+                .getMaterializedRows();
+
+        transaction(queryRunner.getTransactionManager())
+                .execute(session, transactionSession -> {
+                    assertUpdate(transactionSession, "DELETE FROM tmp_delete_insert WHERE z = 2");
+                    assertUpdate(transactionSession, "INSERT INTO tmp_delete_insert VALUES (200, 2), (201, 2), (202, 2)", 3);
+                    MaterializedResult actualOutOfTransaction = computeActual(session, "SELECT * FROM tmp_delete_insert");
+                    assertEqualsIgnoreOrder(actualOutOfTransaction, expectedBefore);
+                    MaterializedResult actualInTransaction = computeActual(transactionSession, "SELECT * FROM tmp_delete_insert");
+                    // TODO: This test failure should be fixed once all uses of PartitionAndMore.getPartition is fixed
+                    //assertEqualsIgnoreOrder(actualInTransaction, expectedAfter);
+                });
+
+        MaterializedResult actualAfterTransaction = computeActual(session, "SELECT * FROM tmp_delete_insert");
+        assertEqualsIgnoreOrder(actualAfterTransaction, expectedAfter);
     }
 
     private void assertOneNotNullResult(@Language("SQL") String query)

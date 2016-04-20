@@ -13,22 +13,29 @@
  */
 package com.facebook.presto.hive.metastore;
 
+import com.facebook.presto.hive.HdfsEnvironment;
 import com.facebook.presto.hive.HiveType;
+import com.facebook.presto.hive.HiveWriteUtils;
 import com.facebook.presto.hive.PartitionAlreadyExistsException;
 import com.facebook.presto.hive.PartitionNotFoundException;
 import com.facebook.presto.hive.TableAlreadyExistsException;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
+import com.facebook.presto.spi.StandardErrorCode;
 import com.facebook.presto.spi.TableNotFoundException;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import io.airlift.log.Logger;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.PrincipalPrivilegeSet;
 import org.apache.hadoop.hive.metastore.api.PrivilegeGrantInfo;
 
+import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -38,6 +45,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static com.facebook.presto.spi.StandardErrorCode.NOT_SUPPORTED;
+import static com.facebook.presto.spi.StandardErrorCode.TRANSACTION_CONFLICT;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static java.lang.String.format;
@@ -54,13 +62,46 @@ public class SemiTransactionalHiveMetastore
     private static final String PARTITION_VALUE_WILDCARD = "";
 
     private final ExtendedHiveMetastore delegate;
+    private final HdfsEnvironment hdfsEnvironment;
 
     private final Map<SchemaTableName, Action<TableAndPrivilege>> tableActions = new HashMap<>();
-    private final Map<SchemaTableName, Map<List<String>, Action<Partition>>> partitionActions = new HashMap<>();
+    private final Map<SchemaTableName, Map<List<String>, Action<PartitionAndMore>>> partitionActions = new HashMap<>();
+    private ExclusiveOperation bufferedExclusiveOperation;
 
-    public SemiTransactionalHiveMetastore(ExtendedHiveMetastore delegate)
+    private State state = State.EMPTY;
+
+    public SemiTransactionalHiveMetastore(HdfsEnvironment hdfsEnvironment, ExtendedHiveMetastore delegate)
     {
-        this.delegate = delegate;
+        this.hdfsEnvironment = requireNonNull(hdfsEnvironment, "hdfsEnvironment is null");
+        this.delegate = requireNonNull(delegate, "delegate is null");
+    }
+
+    private enum State {
+        EMPTY,
+        SHARED_OPERATION_BUFFERED,
+        EXCLUSIVE_OPERATION_BUFFERED,
+    }
+
+    private void checkShared()
+    {
+        if (state == State.EXCLUSIVE_OPERATION_BUFFERED) {
+            throw new PrestoException(StandardErrorCode.NOT_SUPPORTED, "Invalid combination of operations in a single transaction");
+        }
+    }
+
+    private void setShared()
+    {
+        checkShared();
+        state = State.SHARED_OPERATION_BUFFERED;
+    }
+
+    private void setExclusive(ExclusiveOperation exclusiveOperation)
+    {
+        if (state == State.SHARED_OPERATION_BUFFERED) {
+            throw new PrestoException(StandardErrorCode.NOT_SUPPORTED, "Invalid combination of operations in a single transaction");
+        }
+        state = State.EXCLUSIVE_OPERATION_BUFFERED;
+        bufferedExclusiveOperation = exclusiveOperation;
     }
 
     public void rollback()
@@ -68,6 +109,21 @@ public class SemiTransactionalHiveMetastore
     }
 
     public void commit()
+    {
+        switch (state) {
+            case EMPTY:
+                break;
+            case SHARED_OPERATION_BUFFERED:
+                commitShared();
+                break;
+            case EXCLUSIVE_OPERATION_BUFFERED:
+                requireNonNull(bufferedExclusiveOperation, "bufferedExclusiveOperation is null");
+                bufferedExclusiveOperation.execute(delegate);
+                break;
+        }
+    }
+
+    private void commitShared()
     {
         for (Map.Entry<SchemaTableName, Action<TableAndPrivilege>> entry : tableActions.entrySet()) {
             SchemaTableName schemaTableName = entry.getKey();
@@ -83,44 +139,109 @@ public class SemiTransactionalHiveMetastore
                     break;
             }
         }
-        for (Map.Entry<SchemaTableName, Map<List<String>, Action<Partition>>> tableEntry : partitionActions.entrySet()) {
+        List<String> locationsToDelete = new ArrayList<>();
+        for (Map.Entry<SchemaTableName, Map<List<String>, Action<PartitionAndMore>>> tableEntry : partitionActions.entrySet()) {
             SchemaTableName schemaTableName = tableEntry.getKey();
             PartitionCommitter partitionCommitter = new PartitionCommitter(schemaTableName.getSchemaName(), schemaTableName.getTableName(), delegate, PARTITION_COMMIT_BATCH_SIZE);
-            for (Map.Entry<List<String>, Action<Partition>> partitionEntry : tableEntry.getValue().entrySet()) {
+            for (Map.Entry<List<String>, Action<PartitionAndMore>> partitionEntry : tableEntry.getValue().entrySet()) {
                 List<String> partitionValues = partitionEntry.getKey();
-                Action<Partition> action = partitionEntry.getValue();
+                Action<PartitionAndMore> action = partitionEntry.getValue();
                 switch (action.getType()) {
                     case DROP:
                         delegate.dropPartition(schemaTableName.getSchemaName(), schemaTableName.getTableName(), partitionValues);
                         break;
-                    case ALTER:
-                        delegate.getPartition(schemaTableName.getSchemaName(), schemaTableName.getTableName(), action.getData().getValues());
-                        delegate.alterPartition(schemaTableName.getSchemaName(), schemaTableName.getTableName(), action.getData());
+                    case ALTER: {
+                        PartitionAndMore partitionAndMore = action.getData();
+                        Partition partition = partitionAndMore.getPartition();
+                        Optional<RenameRequest> renameRequest = partitionAndMore.getRenameRequest();
+                        Optional<Partition> oldPartition = delegate.getPartition(schemaTableName.getSchemaName(), schemaTableName.getTableName(), partition.getValues());
+                        if (!oldPartition.isPresent()) {
+                            throw new PrestoException(TRANSACTION_CONFLICT, "TODO"); //TODO
+                        }
+                        deleteRecursivelyIfExists(hdfsEnvironment, oldPartition.get().getStorage().getLocation());
+                        if (renameRequest.isPresent()) {
+                            HiveWriteUtils.renameDirectory(hdfsEnvironment, partition.getDatabaseName(), partition.getTableName(), renameRequest.get().getSource(), renameRequest.get().getTarget());
+                        }
+                        delegate.alterPartition(schemaTableName.getSchemaName(), schemaTableName.getTableName(), partition);
                         break;
-                    case ADD:
-                        partitionCommitter.addPartition(action.getData());
+                    }
+                    case ADD: {
+                        PartitionAndMore partitionAndMore = action.getData();
+                        Partition partition = partitionAndMore.getPartition();
+                        Optional<RenameRequest> renameRequest = partitionAndMore.getRenameRequest();
+                        if (renameRequest.isPresent()) {
+                            HiveWriteUtils.renameDirectory(hdfsEnvironment, partition.getDatabaseName(), partition.getTableName(), renameRequest.get().getSource(), renameRequest.get().getTarget());
+                        }
+                        partitionCommitter.addPartition(partition);
                         break;
+                    }
                 }
             }
             partitionCommitter.flush();
         }
     }
 
+    private static boolean deleteRecursivelyIfExists(HdfsEnvironment hdfsEnvironment, String location)
+    {
+        Path path = new Path(location);
+
+        FileSystem fileSystem;
+        try {
+            fileSystem = hdfsEnvironment.getFileSystem(path);
+        }
+        catch (IOException ignored) {
+            return false;
+        }
+
+        return deleteRecursivelyIfExists(fileSystem, path);
+    }
+
+    /**
+     * Attempts to remove the file or empty directory.
+     * @return true if the location no longer exists
+     */
+    private static boolean deleteRecursivelyIfExists(FileSystem fileSystem, Path path)
+    {
+        try {
+            // attempt to delete the path
+            if (fileSystem.delete(path, true)) {
+                return true;
+            }
+
+            // delete failed
+            // check if path still exists
+            return !fileSystem.exists(path);
+        }
+        catch (FileNotFoundException ignored) {
+            // path was already removed or never existed
+            return true;
+        }
+        catch (IOException ignored) {
+        }
+        return false;
+    }
+
     public HiveMetastoreSingleTablePatch generatePartitionPatch(SchemaTableName schemaTableName)
     {
+        checkShared();
         Optional<Table> table = getTable(schemaTableName.getSchemaName(), schemaTableName.getTableName());
         if (!table.isPresent()) {
             return new HiveMetastoreSingleTablePatch(schemaTableName, Optional.empty(), Optional.empty());
         }
+        Map<List<String>, Action<PartitionAndMore>> partitionActionMap = partitionActions.get(schemaTableName);
+        if (partitionActionMap == null) {
+            partitionActionMap = ImmutableMap.of();
+        }
         return new HiveMetastoreSingleTablePatch(
                 schemaTableName,
                 table,
-                Optional.of(partitionActions.computeIfAbsent(schemaTableName, k -> new HashMap<>())));
+                Optional.of(partitionActionMap));
     }
 
     @Override
     public void createTable(Table table, PrincipalPrivilegeSet principalPrivilegeSet)
     {
+        setShared();
         SchemaTableName schemaTableName = toSchemaTableName(table);
         Action<TableAndPrivilege> oldTableAction = tableActions.get(schemaTableName);
         TableAndPrivilege tableAndPrivilege = new TableAndPrivilege(table, principalPrivilegeSet);
@@ -141,6 +262,7 @@ public class SemiTransactionalHiveMetastore
     @Override
     public void dropTable(String databaseName, String tableName)
     {
+        setShared();
         SchemaTableName schemaTableName = new SchemaTableName(databaseName, tableName);
         Action<TableAndPrivilege> oldTableAction = tableActions.get(schemaTableName);
         if (oldTableAction == null || oldTableAction.getType() == ActionType.ALTER) {
@@ -162,24 +284,25 @@ public class SemiTransactionalHiveMetastore
     @Override
     public void renameTable(String databaseName, String tableName, String newDatabaseName, String newTableName)
     {
-        throw new UnsupportedOperationException();
+        setExclusive(new RenameTableOperation(databaseName, tableName, newDatabaseName, newTableName));
     }
 
     @Override
     public void addColumn(String databaseName, String tableName, String columnName, HiveType columnType, String columnComment)
     {
-        throw new UnsupportedOperationException();
+        setExclusive(new AddColumnOperation(databaseName, tableName, columnName, columnType, columnComment));
     }
 
     @Override
     public void renameColumn(String databaseName, String tableName, String oldColumnName, String newColumnName)
     {
-        throw new UnsupportedOperationException();
+        setExclusive(new RenameColumnOperation(databaseName, tableName, oldColumnName, newColumnName));
     }
 
     @Override
     public void alterTable(String databaseName, String tableName, Table table, PrincipalPrivilegeSet principalPrivilegeSet)
     {
+        setShared(); // TODO: ?
         SchemaTableName schemaTableName = new SchemaTableName(databaseName, tableName);
         Action<TableAndPrivilege> oldTableAction = tableActions.get(schemaTableName);
         if (oldTableAction == null || oldTableAction.getType() == ActionType.ALTER) {
@@ -236,26 +359,55 @@ public class SemiTransactionalHiveMetastore
     @Override
     public void addPartitions(String databaseName, String tableName, List<Partition> partitions)
     {
+        setShared();
+        if (true) {
+            throw new UnsupportedOperationException();
+        }
         for (Partition partition : partitions) {
-            addPartition(databaseName, tableName, partition);
+            addPartition(databaseName, tableName, partition, Optional.empty());
         }
     }
 
-    private void addPartition(String databaseName, String tableName, Partition partition)
+    public void addPartition(String databaseName, String tableName, Partition partition, Optional<RenameRequest> renameRequest)
     {
-        Map<List<String>, Action<Partition>> partitionActionsOfTable = partitionActions.computeIfAbsent(new SchemaTableName(databaseName, tableName), k -> new HashMap<>());
-        Action<Partition> oldPartitionAction = partitionActionsOfTable.get(partition.getValues());
+        Map<List<String>, Action<PartitionAndMore>> partitionActionsOfTable = partitionActions.computeIfAbsent(new SchemaTableName(databaseName, tableName), k -> new HashMap<>());
+        Action<PartitionAndMore> oldPartitionAction = partitionActionsOfTable.get(partition.getValues());
         if (oldPartitionAction == null) {
-            partitionActionsOfTable.put(partition.getValues(), new Action<>(ActionType.ADD, partition));
+            partitionActionsOfTable.put(partition.getValues(), new Action<>(ActionType.ADD, new PartitionAndMore(partition, renameRequest)));
             return;
         }
         switch (oldPartitionAction.getType()) {
             case DROP:
-                partitionActionsOfTable.put(partition.getValues(), new Action<>(ActionType.ALTER, partition));
+                partitionActionsOfTable.put(partition.getValues(), new Action<>(ActionType.ALTER, new PartitionAndMore(partition, renameRequest)));
                 break;
             case ADD:
             case ALTER:
                 throw new PartitionAlreadyExistsException(new SchemaTableName(databaseName, tableName), Optional.of(partition.getValues()));
+        }
+    }
+
+    public static class RenameRequest
+    {
+        private final Path source;
+        private final Path target;
+
+        @JsonCreator
+        public RenameRequest(@JsonProperty("source") Path source, @JsonProperty("target") Path target)
+        {
+            this.source = source;
+            this.target = target;
+        }
+
+        @JsonProperty
+        public Path getSource()
+        {
+            return source;
+        }
+
+        @JsonProperty
+        public Path getTarget()
+        {
+            return target;
         }
     }
 
@@ -268,8 +420,9 @@ public class SemiTransactionalHiveMetastore
     @Override
     public void dropPartition(String databaseName, String tableName, List<String> parts)
     {
-        Map<List<String>, Action<Partition>> partitionActionsOfTable = partitionActions.computeIfAbsent(new SchemaTableName(databaseName, tableName), k -> new HashMap<>());
-        Action<Partition> oldPartitionAction = partitionActionsOfTable.get(parts);
+        setShared();
+        Map<List<String>, Action<PartitionAndMore>> partitionActionsOfTable = partitionActions.computeIfAbsent(new SchemaTableName(databaseName, tableName), k -> new HashMap<>());
+        Action<PartitionAndMore> oldPartitionAction = partitionActionsOfTable.get(parts);
         if (oldPartitionAction == null) {
             partitionActionsOfTable.put(parts, new Action<>(ActionType.DROP, null));
             return;
@@ -302,12 +455,12 @@ public class SemiTransactionalHiveMetastore
         if (!partitionNames.isPresent()) {
             return Optional.empty();
         }
-        Map<List<String>, Action<Partition>> partitionActionsOfTable = partitionActions.computeIfAbsent(new SchemaTableName(databaseName, tableName), k -> new HashMap<>());
+        Map<List<String>, Action<PartitionAndMore>> partitionActionsOfTable = partitionActions.computeIfAbsent(new SchemaTableName(databaseName, tableName), k -> new HashMap<>());
         ImmutableList.Builder<String> resultBuilder = ImmutableList.builder();
         // alter/remove newly-altered/dropped partitions from underlying metastore
         for (String partitionName : partitionNames.get()) {
             List<String> partitionValues = toPartitionValues(partitionName);
-            Action<Partition> partitionAction = partitionActionsOfTable.get(partitionValues);
+            Action<PartitionAndMore> partitionAction = partitionActionsOfTable.get(partitionValues);
             if (partitionAction == null) {
                 resultBuilder.add(partitionName);
                 continue;
@@ -322,7 +475,7 @@ public class SemiTransactionalHiveMetastore
                     break;
             }
         }
-        for (Action<Partition> partitionAction : partitionActionsOfTable.values()) {
+        for (Action<PartitionAndMore> partitionAction : partitionActionsOfTable.values()) {
             if (partitionAction.getType() == ActionType.ADD) {
                 // TODO: How to turn into partition name? On the other hand, maybe don't use partition names in Presto at all?
                 //resultBuilder.add(partitionAction.getData().getValues());
@@ -362,12 +515,12 @@ public class SemiTransactionalHiveMetastore
         if (!partitionNames.isPresent()) {
             return Optional.empty();
         }
-        Map<List<String>, Action<Partition>> partitionActionsOfTable = partitionActions.computeIfAbsent(new SchemaTableName(databaseName, tableName), k -> new HashMap<>());
+        Map<List<String>, Action<PartitionAndMore>> partitionActionsOfTable = partitionActions.computeIfAbsent(new SchemaTableName(databaseName, tableName), k -> new HashMap<>());
         ImmutableList.Builder<String> resultBuilder = ImmutableList.builder();
         // alter/remove newly-altered/dropped partitions from the results from underlying metastore
         for (String partitionName : partitionNames.get()) {
             List<String> partitionValues = toPartitionValues(partitionName);
-            Action<Partition> partitionAction = partitionActionsOfTable.get(partitionValues);
+            Action<PartitionAndMore> partitionAction = partitionActionsOfTable.get(partitionValues);
             if (partitionAction == null) {
                 resultBuilder.add(partitionName);
                 continue;
@@ -384,9 +537,9 @@ public class SemiTransactionalHiveMetastore
             }
         }
         // add newly-added partitions to the results from underlying metastore
-        for (Action<Partition> partitionAction : partitionActionsOfTable.values()) {
+        for (Action<PartitionAndMore> partitionAction : partitionActionsOfTable.values()) {
             if (partitionAction.getType() == ActionType.ADD) {
-                List<String> values = partitionAction.getData().getValues();
+                List<String> values = partitionAction.getData().getPartition().getValues();
                 if (partitionValuesMatch(values, parts)) {
                     // TODO: How to turn into partition name? On the other hand, maybe don't use partition names in Presto at all?
                     //resultBuilder.add(values);
@@ -400,13 +553,13 @@ public class SemiTransactionalHiveMetastore
     @Override
     public Optional<Partition> getPartition(String databaseName, String tableName, List<String> partitionValues)
     {
-        Map<List<String>, Action<Partition>> partitionActionsOfTable = partitionActions.computeIfAbsent(new SchemaTableName(databaseName, tableName), k -> new HashMap<>());
+        Map<List<String>, Action<PartitionAndMore>> partitionActionsOfTable = partitionActions.computeIfAbsent(new SchemaTableName(databaseName, tableName), k -> new HashMap<>());
         return getPartition(databaseName, tableName, partitionValues, partitionActionsOfTable, delegate);
     }
 
-    static Optional<Partition> getPartition(String databaseName, String tableName, List<String> partitionValues, Map<List<String>, Action<Partition>> partitionActionsOfTable, ExtendedHiveMetastore delegate)
+    static Optional<Partition> getPartition(String databaseName, String tableName, List<String> partitionValues, Map<List<String>, Action<PartitionAndMore>> partitionActionsOfTable, ExtendedHiveMetastore delegate)
     {
-        Action<Partition> partitionAction = partitionActionsOfTable.get(partitionValues);
+        Action<PartitionAndMore> partitionAction = partitionActionsOfTable.get(partitionValues);
         if (partitionAction == null) {
             return delegate.getPartition(databaseName, tableName, partitionValues);
         }
@@ -414,7 +567,7 @@ public class SemiTransactionalHiveMetastore
             switch (partitionAction.getType()) {
                 case ADD:
                 case ALTER:
-                    return Optional.of(partitionAction.getData());
+                    return Optional.of(partitionAction.getData().getPartition());
                 case DROP:
                     return Optional.empty();
                 default:
@@ -423,16 +576,15 @@ public class SemiTransactionalHiveMetastore
         }
     }
 
-    // TODO: The return type here is very weird
     @Override
     public Map<String, Optional<Partition>> getPartitionsByNames(String databaseName, String tableName, List<String> partitionNames)
     {
-        Map<List<String>, Action<Partition>> partitionActionsOfTable = partitionActions.computeIfAbsent(new SchemaTableName(databaseName, tableName), k -> new HashMap<>());
+        Map<List<String>, Action<PartitionAndMore>> partitionActionsOfTable = partitionActions.computeIfAbsent(new SchemaTableName(databaseName, tableName), k -> new HashMap<>());
         ImmutableList.Builder<String> partitionNamesToQuery = ImmutableList.builder();
         ImmutableMap.Builder<String, Optional<Partition>> resultBuilder = ImmutableMap.builder();
         for (String partitionName : partitionNames) {
             List<String> partitionValues = toPartitionValues(partitionName);
-            Action<Partition> partitionAction = partitionActionsOfTable.get(partitionValues);
+            Action<PartitionAndMore> partitionAction = partitionActionsOfTable.get(partitionValues);
             if (partitionAction == null) {
                 partitionNamesToQuery.add(partitionName);
             }
@@ -440,15 +592,17 @@ public class SemiTransactionalHiveMetastore
                 switch (partitionAction.getType()) {
                     case ADD:
                     case ALTER:
-                        resultBuilder.put(partitionName, Optional.of(partitionAction.getData()));
+                        resultBuilder.put(partitionName, Optional.of(partitionAction.getData().getPartition()));
+                        break;
                     case DROP:
                         resultBuilder.put(partitionName, Optional.empty());
+                        break;
                     default:
                         throw new UnsupportedOperationException("Unknown action type");
                 }
             }
         }
-        Map<String, Optional<Partition>> delegateResult = delegate.getPartitionsByNames(databaseName, tableName, partitionNames);
+        Map<String, Optional<Partition>> delegateResult = delegate.getPartitionsByNames(databaseName, tableName, partitionNamesToQuery.build());
         resultBuilder.putAll(delegateResult);
         return resultBuilder.build();
     }
@@ -494,7 +648,7 @@ public class SemiTransactionalHiveMetastore
     @Override
     public void grantTablePrivileges(String databaseName, String tableName, String grantee, Set<PrivilegeGrantInfo> privilegeGrantInfoSet)
     {
-        delegate.grantTablePrivileges(databaseName, tableName, grantee, privilegeGrantInfoSet);
+        setExclusive(new GrantTablePrivileges(databaseName, tableName, grantee, privilegeGrantInfoSet));
     }
 
     private boolean partitionValuesMatch(List<String> values, List<String> pattern)
@@ -560,10 +714,36 @@ public class SemiTransactionalHiveMetastore
         }
     }
 
+    public static class PartitionAndMore
+    {
+        private final Partition partition;
+        private final Optional<RenameRequest> renameRequest;
+
+        @JsonCreator
+        public PartitionAndMore(@JsonProperty("partition") Partition partition, @JsonProperty("renameRequest") Optional<RenameRequest> renameRequest)
+        {
+            this.partition = requireNonNull(partition, "partition is null");
+            this.renameRequest = requireNonNull(renameRequest, "renameRequest is null");
+        }
+
+        @JsonProperty
+        public Partition getPartition()
+        {
+            //TODO: survey caller and see if they need to substitute the current directory with the original directory in the renamerequest
+            return partition;
+        }
+
+        @JsonProperty
+        public Optional<RenameRequest> getRenameRequest()
+        {
+            return renameRequest;
+        }
+    }
+
     private static class TableAndPrivilege
     {
-        Table table;
-        PrincipalPrivilegeSet principalPrivilegeSet;
+        private final Table table;
+        private final PrincipalPrivilegeSet principalPrivilegeSet;
 
         public TableAndPrivilege(Table table, PrincipalPrivilegeSet principalPrivilegeSet)
         {
@@ -688,6 +868,104 @@ public class SemiTransactionalHiveMetastore
             metastore.addPartitions(schemaName, tableName, batch);
             createdPartitions.addAll(batch);
             batch.clear();
+        }
+    }
+
+    private interface ExclusiveOperation {
+        void execute(ExtendedHiveMetastore delegate);
+    }
+
+    private static class AddColumnOperation
+            implements ExclusiveOperation
+    {
+        private final String databaseName;
+        private final String tableName;
+        private final String columnName;
+        private final HiveType columnType;
+        private final String columnComment;
+
+        public AddColumnOperation(String databaseName, String tableName, String columnName, HiveType columnType, String columnComment)
+        {
+            this.databaseName = databaseName;
+            this.tableName = tableName;
+            this.columnName = columnName;
+            this.columnType = columnType;
+            this.columnComment = columnComment;
+        }
+
+        @Override
+        public void execute(ExtendedHiveMetastore delegate)
+        {
+            delegate.addColumn(databaseName, tableName, columnName, columnType, columnComment);
+        }
+    }
+
+    private static class RenameColumnOperation
+            implements ExclusiveOperation
+    {
+        private final String databaseName;
+        private final String tableName;
+        private final String oldColumnName;
+        private final String newColumnName;
+
+        public RenameColumnOperation(String databaseName, String tableName, String oldColumnName, String newColumnName)
+        {
+            this.databaseName = databaseName;
+            this.tableName = tableName;
+            this.oldColumnName = oldColumnName;
+            this.newColumnName = newColumnName;
+        }
+
+        @Override
+        public void execute(ExtendedHiveMetastore delegate)
+        {
+            delegate.renameColumn(databaseName, tableName, oldColumnName, newColumnName);
+        }
+    }
+
+    private static class RenameTableOperation
+            implements ExclusiveOperation
+    {
+        private final String databaseName;
+        private final String tableName;
+        private final String newDatabaseName;
+        private final String newTableName;
+
+        public RenameTableOperation(String databaseName, String tableName, String newDatabaseName, String newTableName)
+        {
+            this.databaseName = databaseName;
+            this.tableName = tableName;
+            this.newDatabaseName = newDatabaseName;
+            this.newTableName = newTableName;
+        }
+
+        @Override
+        public void execute(ExtendedHiveMetastore delegate)
+        {
+            delegate.renameTable(databaseName, tableName, newDatabaseName, newTableName);
+        }
+    }
+
+    private static class GrantTablePrivileges
+            implements ExclusiveOperation
+    {
+        private final String databaseName;
+        private final String tableName;
+        private final String grantee;
+        private final Set<PrivilegeGrantInfo> privilegeGrantInfoSet;
+
+        public GrantTablePrivileges(String databaseName, String tableName, String grantee, Set<PrivilegeGrantInfo> privilegeGrantInfoSet)
+        {
+            this.databaseName = databaseName;
+            this.tableName = tableName;
+            this.grantee = grantee;
+            this.privilegeGrantInfoSet = privilegeGrantInfoSet;
+        }
+
+        @Override
+        public void execute(ExtendedHiveMetastore delegate)
+        {
+            delegate.grantTablePrivileges(databaseName, tableName, grantee, privilegeGrantInfoSet);
         }
     }
 }

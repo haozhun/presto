@@ -13,6 +13,8 @@
  */
 package com.facebook.presto.hive.metastore;
 
+import com.facebook.presto.hive.metastore.SemiTransactionalHiveMetastore.Action;
+import com.facebook.presto.hive.metastore.SemiTransactionalHiveMetastore.PartitionAndMore;
 import com.facebook.presto.spi.SchemaTableName;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -28,12 +30,12 @@ public class HiveMetastoreSingleTablePatch
 {
     private final SchemaTableName schemaTableName;
     private final Optional<Table> table;
-    private final Optional<Map<List<String>, SemiTransactionalHiveMetastore.Action<Partition>>> partitionActions;
+    private final Optional<Map<List<String>, Action<PartitionAndMore>>> partitionActions;
 
     public HiveMetastoreSingleTablePatch(
             SchemaTableName schemaTableName,
             Optional<Table> table,
-            Optional<Map<List<String>, SemiTransactionalHiveMetastore.Action<Partition>>> partitionActions)
+            Optional<Map<List<String>, Action<PartitionAndMore>>> partitionActions)
     {
         this.schemaTableName = requireNonNull(schemaTableName, "schemaTableName is null");
         this.table = requireNonNull(table, "table is null");
@@ -44,7 +46,7 @@ public class HiveMetastoreSingleTablePatch
     public static HiveMetastoreSingleTablePatch deserialize(
             @JsonProperty("schemaTableName") SchemaTableName schemaTableName,
             @JsonProperty("table") Optional<Table> table,
-            @JsonProperty("partitionActions") Optional<List<JsonSerializableEntry<List<String>, SemiTransactionalHiveMetastore.Action<Partition>>>> partitionActions)
+            @JsonProperty("partitionActions") Optional<List<JsonSerializableEntry<List<String>, Action<PartitionAndMore>>>> partitionActions)
     {
         requireNonNull(partitionActions, "partitionActions is null");
         return new HiveMetastoreSingleTablePatch(schemaTableName, table, partitionActions.map(JsonSerializableEntry::toMap));
@@ -63,12 +65,12 @@ public class HiveMetastoreSingleTablePatch
     }
 
     @JsonProperty("partitionActions")
-    public Optional<List<JsonSerializableEntry<List<String>, SemiTransactionalHiveMetastore.Action<Partition>>>> getJsonSerializablePartitionActions()
+    public Optional<List<JsonSerializableEntry<List<String>, Action<PartitionAndMore>>>> getJsonSerializablePartitionActions()
     {
         return partitionActions.map(JsonSerializableEntry::fromMap);
     }
 
-    public Optional<Map<List<String>, SemiTransactionalHiveMetastore.Action<Partition>>> getPartitionActions()
+    public Optional<Map<List<String>, Action<PartitionAndMore>>> getPartitionActions()
     {
         return partitionActions;
     }

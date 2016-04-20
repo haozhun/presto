@@ -696,6 +696,7 @@ public final class HiveUtil
 
     public static List<String> toPartitionValues(String partitionName)
     {
+        //TODO: add test for this
         // mimics Warheouse.makeValsFromName
         ImmutableList.Builder<String> resultBuilder = ImmutableList.builder();
         int start = 0;
@@ -708,7 +709,7 @@ public final class HiveUtil
             while (end < partitionName.length() && partitionName.charAt(end) != '/') {
                 end++;
             }
-            if (start > end) {
+            if (start > partitionName.length()) {
                 break;
             }
             resultBuilder.add(unescapePathName(partitionName.substring(start, end)));
