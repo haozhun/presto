@@ -74,7 +74,8 @@ public interface ExtendedHiveMetastore
 
     Optional<List<String>> getPartitionNamesByParts(String databaseName, String tableName, List<String> parts);
 
-    Optional<Partition> getPartition(String databaseName, String tableName, String partitionName);
+    //Optional<Partition> getPartition(String databaseName, String tableName, String partitionName);
+    Optional<Partition> getPartition(String databaseName, String tableName, List<String> partitionValues);
 
     Map<String, Optional<Partition>> getPartitionsByNames(String databaseName, String tableName, List<String> partitionNames);
 
