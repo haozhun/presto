@@ -386,10 +386,17 @@ public class SharedBuffer
             if (!state.canAddBuffers() && !namedBuffers.isEmpty()) {
                 for (Map.Entry<Integer, Set<NamedBuffer>> entry : partitionToNamedBuffer.entrySet()) {
                     PartitionBuffer partitionBuffer = partitionBuffers.get(entry.getKey());
-                    long newMasterSequenceId = entry.getValue().stream()
-                            .mapToLong(NamedBuffer::getSequenceId)
-                            .min()
-                            .getAsLong();
+
+                    // Profiling showed that using stream, Stream.mapToLong, and LongStream.min here
+                    // can introduce significant amount of object allocation
+                    long newMasterSequenceId = Long.MAX_VALUE;
+                    for (NamedBuffer namedBuffer : entry.getValue()) {
+                        long sequenceId = namedBuffer.getSequenceId();
+                        if (newMasterSequenceId > sequenceId) {
+                            newMasterSequenceId = sequenceId;
+                        }
+                    }
+
                     partitionBuffer.advanceSequenceId(newMasterSequenceId);
                 }
             }
