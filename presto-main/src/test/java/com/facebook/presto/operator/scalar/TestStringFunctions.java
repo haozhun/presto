@@ -321,7 +321,7 @@ public class TestStringFunctions
         assertInvalidFunction("SPLIT_PART('abc', '', 0)", "Index must be greater than zero");
         assertInvalidFunction("SPLIT_PART('abc', '', -1)", "Index must be greater than zero");
 
-         assertInvalidFunction("SPLIT_PART(utf8(from_hex('CE')), '', 1)", "Invalid UTF-8 encoding");
+        assertInvalidFunction("SPLIT_PART(utf8(from_hex('CE')), '', 1)", "Invalid UTF-8 encoding");
     }
 
     @Test(expectedExceptions = RuntimeException.class)
@@ -377,6 +377,102 @@ public class TestStringFunctions
         assertFunction("TRIM(' \u4FE1\u5FF5 \u7231 \u5E0C\u671B ')", createVarcharType(9), "\u4FE1\u5FF5 \u7231 \u5E0C\u671B");
         assertFunction("TRIM('  \u4FE1\u5FF5 \u7231 \u5E0C\u671B')", createVarcharType(9), "\u4FE1\u5FF5 \u7231 \u5E0C\u671B");
         assertFunction("TRIM(' \u2028 \u4FE1\u5FF5 \u7231 \u5E0C\u671B')", createVarcharType(10), "\u4FE1\u5FF5 \u7231 \u5E0C\u671B");
+    }
+
+    @Test
+    public void testLeftTrimParametrized()
+    {
+        assertFunction("LTRIM('', '')", createVarcharType(0), "");
+        assertFunction("LTRIM('   ', '')", createVarcharType(3), "   ");
+        assertFunction("LTRIM('  hello  ', '')", createVarcharType(9), "  hello  ");
+        assertFunction("LTRIM('  hello  ', ' ')", createVarcharType(9), "hello  ");
+        assertFunction("LTRIM('  hello  ', 'he ')", createVarcharType(9), "llo  ");
+        assertFunction("LTRIM('  hello', ' ')", createVarcharType(7), "hello");
+        assertFunction("LTRIM('  hello', 'e h')", createVarcharType(7), "llo");
+        assertFunction("LTRIM('hello  ', 'l')", createVarcharType(7), "hello  ");
+        assertFunction("LTRIM(' hello world ', ' ')", createVarcharType(13), "hello world ");
+        assertFunction("LTRIM(' hello world ', ' eh')", createVarcharType(13), "llo world ");
+        assertFunction("LTRIM(' hello world ', ' ehlowrd')", createVarcharType(13), "");
+        assertFunction("LTRIM(' hello world ', ' x')", createVarcharType(13), "hello world ");
+
+        // non latin characters
+        assertFunction("LTRIM('\u017a\u00f3\u0142\u0107', '\u00f3\u017a')", createVarcharType(4), "łć");
+
+        // invalid utf-8 characters
+        assertFunction("CAST(LTRIM(utf8(from_hex('81')), ' ') AS VARBINARY)", VARBINARY, varbinary(0x81));
+        assertFunction("CAST(LTRIM(CONCAT(utf8(from_hex('81')), ' '), ' ') AS VARBINARY)", VARBINARY, varbinary(0x81, ' '));
+        assertFunction("CAST(LTRIM(CONCAT(' ', utf8(from_hex('81'))), ' ') AS VARBINARY)", VARBINARY, varbinary(0x81));
+        assertFunction("CAST(LTRIM(CONCAT(' ', utf8(from_hex('81')), ' '), ' ') AS VARBINARY)", VARBINARY, varbinary(0x81, ' '));
+        assertInvalidFunction("LTRIM('\u017a\u00f3\u0142\u0107', utf8(from_hex('81')))", "Invalid UTF-8 encoding");
+        assertInvalidFunction("LTRIM('\u017a\u00f3\u0142\u0107', utf8(from_hex('3281')))", "Invalid UTF-8 encoding");
+    }
+
+    private SqlVarbinary varbinary(int... bytesAsInts)
+    {
+        byte[] bytes = new byte[bytesAsInts.length];
+        for (int i = 0; i < bytes.length; i++) {
+            bytes[i] = (byte) bytesAsInts[i];
+        }
+        return new SqlVarbinary(bytes);
+    }
+
+    @Test
+    public void testRightTrimParametrized()
+    {
+        assertFunction("RTRIM('', '')", createVarcharType(0), "");
+        assertFunction("RTRIM('   ', '')", createVarcharType(3), "   ");
+        assertFunction("RTRIM('  hello  ', '')", createVarcharType(9), "  hello  ");
+        assertFunction("RTRIM('  hello  ', ' ')", createVarcharType(9), "  hello");
+        assertFunction("RTRIM('  hello  ', 'lo ')", createVarcharType(9), "  he");
+        assertFunction("RTRIM('hello  ', ' ')", createVarcharType(7), "hello");
+        assertFunction("RTRIM('hello  ', 'l o')", createVarcharType(7), "he");
+        assertFunction("RTRIM('hello  ', 'l')", createVarcharType(7), "hello  ");
+        assertFunction("RTRIM(' hello world ', ' ')", createVarcharType(13), " hello world");
+        assertFunction("RTRIM(' hello world ', ' ld')", createVarcharType(13), " hello wor");
+        assertFunction("RTRIM(' hello world ', ' ehlowrd')", createVarcharType(13), "");
+        assertFunction("RTRIM(' hello world ', ' x')", createVarcharType(13), " hello world");
+
+        // non latin characters
+        assertFunction("RTRIM('\u017a\u00f3\u0142\u0107', '\u0107\u0142')", createVarcharType(4), "źó");
+
+        // invalid utf-8 characters
+        assertFunction("CAST(RTRIM(utf8(from_hex('81')), ' ') AS VARBINARY)", VARBINARY, varbinary(0x81));
+        assertFunction("CAST(RTRIM(CONCAT(utf8(from_hex('81')), ' '), ' ') AS VARBINARY)", VARBINARY, varbinary(0x81));
+        assertFunction("CAST(RTRIM(CONCAT(' ', utf8(from_hex('81'))), ' ') AS VARBINARY)", VARBINARY, varbinary(' ', 0x81));
+        assertFunction("CAST(RTRIM(CONCAT(' ', utf8(from_hex('81')), ' '), ' ') AS VARBINARY)", VARBINARY, varbinary(' ', 0x81));
+        assertInvalidFunction("RTRIM('\u017a\u00f3\u0142\u0107', utf8(from_hex('81')))", "Invalid UTF-8 encoding");
+        assertInvalidFunction("RTRIM('\u017a\u00f3\u0142\u0107', utf8(from_hex('3281')))", "Invalid UTF-8 encoding");
+    }
+
+    @Test
+    public void testTrimParametrized()
+    {
+        assertFunction("TRIM('', '')", createVarcharType(0), "");
+        assertFunction("TRIM('   ', '')", createVarcharType(3), "   ");
+        assertFunction("TRIM('  hello  ', '')", createVarcharType(9), "  hello  ");
+        assertFunction("TRIM('  hello  ', ' ')", createVarcharType(9), "hello");
+        assertFunction("TRIM('  hello  ', 'he ')", createVarcharType(9), "llo");
+        assertFunction("TRIM('  hello  ', 'lo ')", createVarcharType(9), "he");
+        assertFunction("TRIM('  hello', ' ')", createVarcharType(7), "hello");
+        assertFunction("TRIM('hello  ', ' ')", createVarcharType(7), "hello");
+        assertFunction("TRIM('hello  ', 'l o')", createVarcharType(7), "he");
+        assertFunction("TRIM('hello  ', 'l')", createVarcharType(7), "hello  ");
+        assertFunction("TRIM(' hello world ', ' ')", createVarcharType(13), "hello world");
+        assertFunction("TRIM(' hello world ', ' ld')", createVarcharType(13), "hello wor");
+        assertFunction("TRIM(' hello world ', ' eh')", createVarcharType(13), "llo world");
+        assertFunction("TRIM(' hello world ', ' ehlowrd')", createVarcharType(13), "");
+        assertFunction("TRIM(' hello world ', ' x')", createVarcharType(13), "hello world");
+
+        // non latin characters
+        assertFunction("TRIM('\u017a\u00f3\u0142\u0107', '\u0107\u017a')", createVarcharType(4), "ół");
+
+        // invalid utf-8 characters
+        assertFunction("CAST(TRIM(utf8(from_hex('81')), ' ') AS VARBINARY)", VARBINARY, varbinary(0x81));
+        assertFunction("CAST(TRIM(CONCAT(utf8(from_hex('81')), ' '), ' ') AS VARBINARY)", VARBINARY, varbinary(0x81));
+        assertFunction("CAST(TRIM(CONCAT(' ', utf8(from_hex('81'))), ' ') AS VARBINARY)", VARBINARY, varbinary(0x81));
+        assertFunction("CAST(TRIM(CONCAT(' ', utf8(from_hex('81')), ' '), ' ') AS VARBINARY)", VARBINARY, varbinary(0x81));
+        assertInvalidFunction("TRIM('\u017a\u00f3\u0142\u0107', utf8(from_hex('81')))", "Invalid UTF-8 encoding");
+        assertInvalidFunction("TRIM('\u017a\u00f3\u0142\u0107', utf8(from_hex('3281')))", "Invalid UTF-8 encoding");
     }
 
     @Test
