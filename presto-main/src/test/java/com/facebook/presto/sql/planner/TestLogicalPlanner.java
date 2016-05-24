@@ -54,6 +54,32 @@ public class TestLogicalPlanner
     }
 
     @Test
+    public void testRegression()
+    {
+        assertPlan("WITH t AS (\n" +
+                        "  SELECT distinct orderkey\n" +
+                        "  FROM lineitem\n" +
+                        "  WHERE orderkey in (\n" +
+                        "    SELECT custkey\n" +
+                        "    FROM customer))\n" +
+                        "SELECT comment,\n" +
+                        "SUM(\n" +
+                        "  CASE\n" +
+                        "    WHEN\n" +
+                        "      orderpriority IN ('5-LOW', '1-URGENT')\n" +
+                        "      AND orderkey IN (SELECT * FROM t)\n" +
+                        "    THEN 1\n" +
+                        "    ELSE 0\n" +
+                        "  END) as malicious\n" +
+                        "FROM orders\n" +
+                        "WHERE clerk IN ('Clerk#000000701', 'Clerk#000000703')\n" +
+                        "        AND orderdate = DATE '1994-07-25'\n" +
+                        "        AND orderkey IN (SELECT * FROM t)\n" +
+                        "GROUP BY comment",
+                anyTree());
+    }
+
+    @Test
     public void testPlanDsl()
     {
         assertPlan("SELECT orderkey FROM orders WHERE orderkey IN (1, 2, 3)",
