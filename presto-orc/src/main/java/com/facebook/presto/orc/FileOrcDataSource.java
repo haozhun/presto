@@ -13,16 +13,24 @@
  */
 package com.facebook.presto.orc;
 
+import io.airlift.log.Logger;
 import io.airlift.units.DataSize;
 
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
+
+import static java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 
 public class FileOrcDataSource
         extends AbstractOrcDataSource
 {
+    private static final Logger log = Logger.get(FileOrcDataSource.class);
+
     private final RandomAccessFile input;
 
     public FileOrcDataSource(File path, DataSize maxMergeDistance, DataSize maxReadSize, DataSize streamBufferSize)
@@ -39,10 +47,22 @@ public class FileOrcDataSource
         input.close();
     }
 
+    private static final DateTimeFormatter dateTimeFormatter = new DateTimeFormatterBuilder()
+            .parseCaseInsensitive()
+            .append(ISO_LOCAL_DATE_TIME)
+            .appendOffset("+HHMM", "Z")
+            .toFormatter();
+
     @Override
     protected void readInternal(long position, byte[] buffer, int bufferOffset, int bufferLength)
             throws IOException
     {
+        //if (log.isDebugEnabled()) {
+            // length offset file-name
+            //log.debug("FileRead %d %d %s", bufferLength, position, toString());
+        //}
+        System.out.println(String.format("%s\t%s\t%d\t%d\t%s", dateTimeFormatter.format(ZonedDateTime.now()), Thread.currentThread().getName(), bufferLength, position, toString()));
+
         input.seek(position);
         input.readFully(buffer, bufferOffset, bufferLength);
     }
