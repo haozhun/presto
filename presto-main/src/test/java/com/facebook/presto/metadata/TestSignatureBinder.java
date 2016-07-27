@@ -34,7 +34,7 @@ import static com.facebook.presto.metadata.Signature.comparableTypeParameter;
 import static com.facebook.presto.metadata.Signature.longVariableExpression;
 import static com.facebook.presto.metadata.Signature.typeVariable;
 import static com.facebook.presto.metadata.Signature.withVariadicBound;
-import static com.facebook.presto.metadata.SignatureBinder.bindVariables;
+import static com.facebook.presto.metadata.SignatureBinder.applyBoundVariables;
 import static com.facebook.presto.spi.type.TypeSignature.parseTypeSignature;
 import static java.util.stream.Collectors.toList;
 import static org.testng.Assert.assertEquals;
