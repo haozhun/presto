@@ -792,7 +792,7 @@ public class TestSignatureBinder
     private void assertBindVariablesFails(String typeSignature, BoundVariables boundVariables, String reason)
     {
         try {
-            bindVariables(parseTypeSignature(typeSignature, ImmutableSet.of("p", "s")), boundVariables);
+            applyBoundVariables(parseTypeSignature(typeSignature, ImmutableSet.of("p", "s")), boundVariables);
             fail(reason);
         }
         catch (RuntimeException e) {
@@ -803,7 +803,7 @@ public class TestSignatureBinder
     private void assertThat(String typeSignature, BoundVariables boundVariables, String expectedTypeSignature)
     {
         assertEquals(
-                bindVariables(parseTypeSignature(typeSignature, ImmutableSet.of("p", "s")), boundVariables).toString(),
+                applyBoundVariables(parseTypeSignature(typeSignature, ImmutableSet.of("p", "s")), boundVariables).toString(),
                 expectedTypeSignature
         );
     }

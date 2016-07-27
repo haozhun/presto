@@ -70,7 +70,7 @@ public class ParametricScalar
     @Override
     public ScalarFunctionImplementation specialize(BoundVariables boundVariables, int arity, TypeManager typeManager, FunctionRegistry functionRegistry)
     {
-        Signature boundSignature = SignatureBinder.bindVariables(getSignature(), boundVariables, arity);
+        Signature boundSignature = SignatureBinder.applyBoundVariables(getSignature(), boundVariables, arity);
         if (implementations.getExactImplementations().containsKey(boundSignature)) {
             ScalarImplementation implementation = implementations.getExactImplementations().get(boundSignature);
             Optional<MethodHandleAndConstructor> methodHandleAndConstructor = implementation.specialize(boundSignature, boundVariables, typeManager, functionRegistry);

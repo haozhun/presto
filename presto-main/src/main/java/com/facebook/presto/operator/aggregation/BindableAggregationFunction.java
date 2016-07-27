@@ -17,6 +17,7 @@ import com.facebook.presto.bytecode.DynamicClassLoader;
 import com.facebook.presto.metadata.BoundVariables;
 import com.facebook.presto.metadata.FunctionRegistry;
 import com.facebook.presto.metadata.Signature;
+import com.facebook.presto.metadata.SignatureBinder;
 import com.facebook.presto.metadata.SqlAggregationFunction;
 import com.facebook.presto.operator.aggregation.AggregationMetadata.ParameterMetadata;
 import com.facebook.presto.operator.aggregation.state.StateCompiler;
@@ -92,7 +93,7 @@ public class BindableAggregationFunction
     public InternalAggregationFunction specialize(BoundVariables variables, int arity, TypeManager typeManager, FunctionRegistry functionRegistry)
     {
         // bind variables
-        Signature boundSignature = bindVariables(getSignature(), variables, arity);
+        Signature boundSignature = SignatureBinder.applyBoundVariables(getSignature(), variables, arity);
         List<Type> inputTypes = boundSignature.getArgumentTypes().stream().map(x -> typeManager.getType(x)).collect(toImmutableList());
         Type outputType = typeManager.getType(boundSignature.getReturnType());
 
