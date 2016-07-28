@@ -21,6 +21,7 @@ import com.facebook.presto.spi.function.InputFunction;
 import com.facebook.presto.spi.function.OutputFunction;
 import com.facebook.presto.spi.function.SqlType;
 import com.facebook.presto.spi.type.StandardTypes;
+import com.google.common.collect.ImmutableList;
 
 import static com.facebook.presto.spi.type.RealType.REAL;
 import static com.facebook.presto.testing.AggregationTestUtils.generateInternalAggregationFunction;
@@ -30,7 +31,7 @@ import static java.lang.Float.intBitsToFloat;
 @AggregationFunction("sum")
 public final class RealSumAggregation
 {
-    public static final InternalAggregationFunction REAL_SUM = generateInternalAggregationFunction(RealSumAggregation.class);
+    public static final InternalAggregationFunction REAL_SUM = generateInternalAggregationFunction(RealSumAggregation.class, REAL.getTypeSignature(), ImmutableList.of(REAL.getTypeSignature()));
 
     private RealSumAggregation() {}
 
