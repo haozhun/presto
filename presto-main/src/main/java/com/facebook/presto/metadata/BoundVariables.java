@@ -71,9 +71,7 @@ public class BoundVariables
     private static <T> T getValue(Map<String, T> map, String variableName)
     {
         checkState(variableName != null, "variableName is null");
-        T value = map.get(variableName);
-        checkState(value != null, "value for variable '%s' is null", variableName);
-        return value;
+        return map.get(variableName);
     }
 
     private static boolean containsValue(Map<String, ?> map, String variableName)
