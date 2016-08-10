@@ -42,8 +42,12 @@ import com.facebook.presto.sql.relational.ConstantExpression;
 import com.facebook.presto.sql.relational.DeterminismEvaluator;
 import com.facebook.presto.sql.relational.Expressions;
 import com.facebook.presto.sql.relational.InputReferenceExpression;
+import com.facebook.presto.sql.relational.LambdaDefinitionExpression;
 import com.facebook.presto.sql.relational.RowExpression;
 import com.facebook.presto.sql.relational.RowExpressionVisitor;
+import com.facebook.presto.sql.relational.Signatures;
+import com.facebook.presto.sql.relational.VariableReferenceExpression;
+import com.google.common.base.VerifyException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.primitives.Primitives;
@@ -77,6 +81,7 @@ import static com.facebook.presto.bytecode.instruction.JumpInstruction.jump;
 import static com.facebook.presto.sql.gen.BytecodeUtils.generateWrite;
 import static com.facebook.presto.sql.gen.BytecodeUtils.loadConstant;
 import static com.facebook.presto.sql.gen.TryCodeGenerator.defineTryMethod;
+import static com.facebook.presto.sql.gen.TryExpressionExtractor.extractTryOrLambdaExpressions;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.Iterables.concat;
@@ -732,59 +737,79 @@ public class PageProcessorCompiler
         return ifFilterOnDictionaryBlock;
     }
 
-    private Map<CallExpression, MethodDefinition> generateTryMethods(
+    private PreGeneratedExpressions generateTryMethods(
             ClassDefinition containerClassDefinition,
             CallSiteBinder callSiteBinder,
             CachedInstanceBinder cachedInstanceBinder,
             RowExpression projection,
             String methodPrefix)
     {
-        TryExpressionExtractor tryExtractor = new TryExpressionExtractor();
-        projection.accept(tryExtractor, null);
-        List<CallExpression> tryExpressions = tryExtractor.getTryExpressionsPreOrder();
+        List<RowExpression> tryOrLambdaExpressions = extractTryOrLambdaExpressions(projection);
 
         ImmutableMap.Builder<CallExpression, MethodDefinition> tryMethodMap = ImmutableMap.builder();
+        ImmutableMap.Builder<LambdaDefinitionExpression, FieldDefinition> lambdaFieldMap = ImmutableMap.builder();
 
-        int methodId = 0;
-        for (CallExpression tryExpression : tryExpressions) {
-            Parameter session = arg("session", ConnectorSession.class);
-            List<Parameter> blocks = toBlockParameters(getInputChannels(tryExpression.getArguments()));
-            Parameter position = arg("position", int.class);
-            Parameter wasNullVariable = arg("wasNull", boolean.class);
+        for (int i = 0; i < tryOrLambdaExpressions.size(); i++) {
+            RowExpression expression = tryOrLambdaExpressions.get(i);
 
-            BytecodeExpressionVisitor innerExpressionVisitor = new BytecodeExpressionVisitor(
-                    callSiteBinder,
-                    cachedInstanceBinder,
-                    fieldReferenceCompiler(callSiteBinder, position, wasNullVariable),
-                    metadata.getFunctionRegistry(),
-                    tryMethodMap.build());
+            if (expression instanceof CallExpression) {
+                String methodName = methodPrefix + "_try_" + i;
+                CallExpression tryExpression = (CallExpression) expression;
+                verify(!Signatures.TRY.equals(tryExpression.getSignature().getName()));
 
-            List<Parameter> inputParameters = ImmutableList.<Parameter>builder()
-                    .add(session)
-                    .addAll(blocks)
-                    .add(position)
-                    .add(wasNullVariable)
-                    .build();
+                Parameter session = arg("session", ConnectorSession.class);
+                List<Parameter> blocks = toBlockParameters(getInputChannels(tryExpression.getArguments()));
+                Parameter position = arg("position", int.class);
 
-            MethodDefinition tryMethod = defineTryMethod(
-                    innerExpressionVisitor,
-                    containerClassDefinition,
-                    methodPrefix + "_try_" + methodId,
-                    inputParameters,
-                    Primitives.wrap(tryExpression.getType().getJavaType()),
-                    tryExpression,
-                    callSiteBinder);
+                BytecodeExpressionVisitor innerExpressionVisitor = new BytecodeExpressionVisitor(
+                        callSiteBinder,
+                        cachedInstanceBinder,
+                        fieldReferenceCompiler(callSiteBinder),
+                        metadata.getFunctionRegistry(),
+                        new PreGeneratedExpressions(tryMethodMap.build(), lambdaFieldMap.build()));
 
-            tryMethodMap.put(tryExpression, tryMethod);
-            methodId++;
+                List<Parameter> inputParameters = ImmutableList.<Parameter>builder()
+                        .add(session)
+                        .addAll(blocks)
+                        .add(position)
+                        .build();
+
+                MethodDefinition tryMethod = defineTryMethod(
+                        innerExpressionVisitor,
+                        containerClassDefinition,
+                        methodName,
+                        inputParameters,
+                        Primitives.wrap(tryExpression.getType().getJavaType()),
+                        tryExpression,
+                        callSiteBinder);
+
+                tryMethodMap.put(tryExpression, tryMethod);
+            }
+            else if (expression instanceof LambdaDefinitionExpression) {
+                LambdaDefinitionExpression lambdaExpression = (LambdaDefinitionExpression) expression;
+                String fieldName = methodPrefix + "_lambda_" + i;
+                PreGeneratedExpressions preGeneratedExpressions = new PreGeneratedExpressions(tryMethodMap.build(), lambdaFieldMap.build());
+                FieldDefinition methodHandleField = LambdaBytecodeGenerator.preGenerateLambdaExpression(
+                        lambdaExpression,
+                        fieldName,
+                        containerClassDefinition,
+                        preGeneratedExpressions,
+                        callSiteBinder,
+                        cachedInstanceBinder,
+                        metadata.getFunctionRegistry());
+                lambdaFieldMap.put(lambdaExpression, methodHandleField);
+            }
+            else {
+                throw new VerifyException("unexpected expression type in generateTryMethods");
+            }
         }
 
-        return tryMethodMap.build();
+        return new PreGeneratedExpressions(tryMethodMap.build(), lambdaFieldMap.build());
     }
 
     private void generateFilterMethod(ClassDefinition classDefinition, CallSiteBinder callSiteBinder, CachedInstanceBinder cachedInstanceBinder, RowExpression filter)
     {
-        Map<CallExpression, MethodDefinition> tryMethodMap = generateTryMethods(classDefinition, callSiteBinder, cachedInstanceBinder, filter, "filter");
+        PreGeneratedExpressions preGeneratedExpressions = generateTryMethods(classDefinition, callSiteBinder, cachedInstanceBinder, filter, "filter");
 
         Parameter session = arg("session", ConnectorSession.class);
         List<Parameter> blocks = toBlockParameters(getInputChannels(filter));
@@ -809,9 +834,9 @@ public class PageProcessorCompiler
         BytecodeExpressionVisitor visitor = new BytecodeExpressionVisitor(
                 callSiteBinder,
                 cachedInstanceBinder,
-                fieldReferenceCompiler(callSiteBinder, position, wasNullVariable),
+                fieldReferenceCompiler(callSiteBinder),
                 metadata.getFunctionRegistry(),
-                tryMethodMap);
+                preGeneratedExpressions);
 
         BytecodeNode visitorBody = filter.accept(visitor, scope);
 
@@ -826,7 +851,7 @@ public class PageProcessorCompiler
 
     private MethodDefinition generateProjectMethod(ClassDefinition classDefinition, CallSiteBinder callSiteBinder, CachedInstanceBinder cachedInstanceBinder, String methodName, RowExpression projection)
     {
-        Map<CallExpression, MethodDefinition> tryMethodMap = generateTryMethods(classDefinition, callSiteBinder, cachedInstanceBinder, projection, methodName);
+        PreGeneratedExpressions preGeneratedExpressions = generateTryMethods(classDefinition, callSiteBinder, cachedInstanceBinder, projection, methodName);
 
         Parameter session = arg("session", ConnectorSession.class);
         List<Parameter> blocks = toBlockParameters(getInputChannels(projection));
@@ -853,10 +878,9 @@ public class PageProcessorCompiler
         BytecodeExpressionVisitor visitor = new BytecodeExpressionVisitor(
                 callSiteBinder,
                 cachedInstanceBinder,
-                fieldReferenceCompiler(callSiteBinder, position, wasNullVariable),
+                fieldReferenceCompiler(callSiteBinder),
                 metadata.getFunctionRegistry(),
-                tryMethodMap
-        );
+                preGeneratedExpressions);
 
         body.getVariable(output)
                 .comment("evaluate projection: " + projection.toString())
@@ -905,7 +929,7 @@ public class PageProcessorCompiler
         return parameters.build();
     }
 
-    private static RowExpressionVisitor<Scope, BytecodeNode> fieldReferenceCompiler(final CallSiteBinder callSiteBinder, final Variable positionVariable, final Variable wasNullVariable)
+    private static RowExpressionVisitor<Scope, BytecodeNode> fieldReferenceCompiler(CallSiteBinder callSiteBinder)
     {
         return new RowExpressionVisitor<Scope, BytecodeNode>()
         {
@@ -915,6 +939,8 @@ public class PageProcessorCompiler
                 int field = node.getField();
                 Type type = node.getType();
                 Variable block = scope.getVariable("block_" + field);
+                Variable position = scope.getVariable("position");
+                Variable wasNull = scope.getVariable("wasNull");
 
                 Class<?> javaType = type.getJavaType();
                 if (!javaType.isPrimitive() && javaType != Slice.class) {
@@ -925,11 +951,11 @@ public class PageProcessorCompiler
                 ifStatement.condition()
                         .setDescription(format("block_%d.get%s()", field, type))
                         .append(block)
-                        .getVariable(positionVariable)
+                        .getVariable(position)
                         .invokeInterface(Block.class, "isNull", boolean.class, int.class);
 
                 ifStatement.ifTrue()
-                        .putVariable(wasNullVariable, true)
+                        .putVariable(wasNull, true)
                         .pushJavaDefault(javaType);
 
                 String methodName = "get" + Primitives.wrap(javaType).getSimpleName();
@@ -937,7 +963,7 @@ public class PageProcessorCompiler
                 ifStatement.ifFalse()
                         .append(loadConstant(callSiteBinder.bind(type, Type.class)))
                         .append(block)
-                        .getVariable(positionVariable)
+                        .getVariable(position)
                         .invokeInterface(Type.class, methodName, javaType, Block.class, int.class);
 
                 return ifStatement;
@@ -951,6 +977,18 @@ public class PageProcessorCompiler
 
             @Override
             public BytecodeNode visitConstant(ConstantExpression literal, Scope scope)
+            {
+                throw new UnsupportedOperationException("not yet implemented");
+            }
+
+            @Override
+            public BytecodeNode visitLambda(LambdaDefinitionExpression lambda, Scope context)
+            {
+                throw new UnsupportedOperationException("not yet implemented");
+            }
+
+            @Override
+            public BytecodeNode visitVariableReference(VariableReferenceExpression reference, Scope context)
             {
                 throw new UnsupportedOperationException("not yet implemented");
             }

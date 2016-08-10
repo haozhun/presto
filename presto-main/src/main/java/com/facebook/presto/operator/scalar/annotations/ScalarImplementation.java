@@ -131,7 +131,7 @@ public class ScalarImplementation
             }
         }
         Class<?> returnContainerType = getNullAwareContainerType(typeManager.getType(boundSignature.getReturnType()).getJavaType(), nullable);
-        if (!returnContainerType.equals(methodHandle.type().returnType())) {
+        if (!methodHandle.type().returnType().isAssignableFrom(returnContainerType)) {
             return Optional.empty();
         }
         for (int i = 0; i < boundSignature.getArgumentTypes().size(); i++) {

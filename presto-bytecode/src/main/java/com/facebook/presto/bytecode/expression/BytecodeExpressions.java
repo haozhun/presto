@@ -130,6 +130,12 @@ public final class BytecodeExpressions
         return new ConstantBytecodeExpression(String.class, loadString(value));
     }
 
+    public static BytecodeExpression defaultValue(ParameterizedType type)
+    {
+        checkArgument(!type.isPrimitive(), "Unsupported type %s", type);
+        return defaultValue(type.getPrimitiveType());
+    }
+
     public static BytecodeExpression defaultValue(Class<?> type)
     {
         requireNonNull(type, "type is null");
@@ -266,6 +272,11 @@ public final class BytecodeExpressions
     public static BytecodeExpression newArray(ParameterizedType type, BytecodeExpression length)
     {
         return new NewArrayBytecodeExpression(type, length);
+    }
+
+    public static BytecodeExpression newArray(ParameterizedType type, Iterable<? extends BytecodeExpression> elements)
+    {
+        return new NewArrayBytecodeExpression(type, ImmutableList.copyOf(elements));
     }
 
     public static BytecodeExpression length(BytecodeExpression instance)

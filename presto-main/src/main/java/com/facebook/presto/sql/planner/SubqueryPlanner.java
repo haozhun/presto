@@ -166,7 +166,7 @@ class SubqueryPlanner
         subPlan = subPlan.appendProjections(correlation.keySet(), symbolAllocator, idAllocator);
         subquery = replaceExpressionsWithSymbols(subquery, correlation);
 
-        TranslationMap translationMap = subPlan.copyTranslations();
+        TranslationMap translationMap = subPlan.copyTranslations(symbolAllocator);
         InPredicate parametersReplaced = ExpressionTreeRewriter.rewriteWith(new ParameterRewriter(parameters, analysis), inPredicate);
         translationMap.addIntermediateMapping(inPredicate, parametersReplaced);
         SymbolReference valueList = getOnlyElement(subquery.getOutputSymbols()).toSymbolReference();
@@ -267,7 +267,7 @@ class SubqueryPlanner
         subPlan = subPlan.appendProjections(correlation.keySet(), symbolAllocator, idAllocator);
         subqueryNode = replaceExpressionsWithSymbols(subqueryNode, correlation);
 
-        TranslationMap translations = subPlan.copyTranslations();
+        TranslationMap translations = subPlan.copyTranslations(symbolAllocator);
         translations.put(subqueryExpression, getOnlyElement(subqueryNode.getOutputSymbols()));
 
         PlanNode root = subPlan.getRoot();

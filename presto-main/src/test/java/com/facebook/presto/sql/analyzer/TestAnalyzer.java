@@ -76,6 +76,7 @@ import static com.facebook.presto.sql.analyzer.SemanticErrorCode.NOT_SUPPORTED;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.ORDER_BY_MUST_BE_IN_SELECT;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.SAMPLE_PERCENTAGE_OUT_OF_RANGE;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.SCHEMA_NOT_SPECIFIED;
+import static com.facebook.presto.sql.analyzer.SemanticErrorCode.STANDALONE_LAMBDA;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.TYPE_MISMATCH;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.VIEW_IS_STALE;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.WILDCARD_WITHOUT_FROM;
@@ -936,7 +937,8 @@ public class TestAnalyzer
     public void testLambda()
             throws Exception
     {
-        assertFails(NOT_SUPPORTED, "SELECT x -> abs(x) from t1");
+        analyze("SELECT apply(x -> abs(x), 5) from t1");
+        assertFails(STANDALONE_LAMBDA, "SELECT x -> abs(x) from t1");
     }
 
     @Test

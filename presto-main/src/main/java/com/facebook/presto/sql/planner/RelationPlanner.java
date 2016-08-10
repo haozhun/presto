@@ -316,7 +316,7 @@ class RelationPlanner
 
         Optional<Symbol> sampleWeight = Optional.empty();
         RelationPlan intermediateRootRelationPlan = new RelationPlan(root, analysis.getScope(node), outputSymbols, sampleWeight);
-        TranslationMap translationMap = new TranslationMap(intermediateRootRelationPlan, analysis);
+        TranslationMap translationMap = new TranslationMap(intermediateRootRelationPlan, analysis, symbolAllocator);
         translationMap.setFieldMappings(outputSymbols);
         translationMap.putExpressionMappingsFrom(leftPlanBuilder.getTranslations());
         translationMap.putExpressionMappingsFrom(rightPlanBuilder.getTranslations());
@@ -672,7 +672,7 @@ class RelationPlanner
 
     private PlanBuilder initializePlanBuilder(RelationPlan relationPlan)
     {
-        TranslationMap translations = new TranslationMap(relationPlan, analysis);
+        TranslationMap translations = new TranslationMap(relationPlan, analysis, symbolAllocator);
 
         // Make field->symbol mapping from underlying relation plan available for translations
         // This makes it possible to rewrite FieldOrExpressions that reference fields from the underlying tuple directly

@@ -13,13 +13,15 @@
  */
 package com.facebook.presto.sql.gen;
 
-import com.facebook.presto.bytecode.BytecodeNode;
-import com.facebook.presto.bytecode.Scope;
+import com.facebook.presto.spi.PrestoException;
+import com.facebook.presto.spi.StandardErrorCode;
 import com.facebook.presto.sql.relational.CallExpression;
 import com.facebook.presto.sql.relational.ConstantExpression;
 import com.facebook.presto.sql.relational.InputReferenceExpression;
+import com.facebook.presto.sql.relational.LambdaDefinitionExpression;
 import com.facebook.presto.sql.relational.RowExpression;
 import com.facebook.presto.sql.relational.RowExpressionVisitor;
+import com.facebook.presto.sql.relational.VariableReferenceExpression;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -29,42 +31,83 @@ import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.Iterables.getOnlyElement;
 
 public class TryExpressionExtractor
-        implements RowExpressionVisitor<Scope, BytecodeNode>
+        implements RowExpressionVisitor<TryExpressionExtractor.Context, Void>
 {
-    private final ImmutableList.Builder<CallExpression> tryExpressions = ImmutableList.builder();
+    private final ImmutableList.Builder<RowExpression> tryExpressions = ImmutableList.builder();
+
+    public static List<RowExpression> extractTryOrLambdaExpressions(RowExpression expression)
+    {
+        TryExpressionExtractor tryOrLambdaExtractor = new TryExpressionExtractor();
+        expression.accept(tryOrLambdaExtractor, new Context(false));
+        return tryOrLambdaExtractor.getTryOrLambdaExpressionsPostOrder();
+    }
 
     @Override
-    public BytecodeNode visitInputReference(InputReferenceExpression node, Scope scope)
+    public Void visitInputReference(InputReferenceExpression node, Context context)
     {
         // TODO: change such that CallExpressions only capture the inputs they actually depend on
         return null;
     }
 
     @Override
-    public BytecodeNode visitCall(CallExpression call, Scope scope)
+    public Void visitCall(CallExpression call, Context context)
     {
-        if (call.getSignature().getName().equals(TRY)) {
+        boolean isTry = call.getSignature().getName().equals(TRY);
+        if (isTry) {
             checkState(call.getArguments().size() == 1, "try call expressions must have a single argument");
             checkState(getOnlyElement(call.getArguments()) instanceof CallExpression, "try call expression argument must be a call expression");
-
-            tryExpressions.add((CallExpression) getOnlyElement(call.getArguments()));
+            if (context.isInLambda()) {
+                throw new PrestoException(StandardErrorCode.NOT_SUPPORTED, "Try expression inside lambda expression is not support yet");
+            }
         }
 
         for (RowExpression rowExpression : call.getArguments()) {
-            rowExpression.accept(this, null);
+            rowExpression.accept(this, context);
         }
 
+        if (isTry) {
+            tryExpressions.add(getOnlyElement(call.getArguments()));
+        }
         return null;
     }
 
     @Override
-    public BytecodeNode visitConstant(ConstantExpression literal, Scope scope)
+    public Void visitConstant(ConstantExpression literal, Context context)
     {
         return null;
     }
 
-    public List<CallExpression> getTryExpressionsPreOrder()
+    @Override
+    public Void visitLambda(LambdaDefinitionExpression lambda, Context context)
     {
-        return tryExpressions.build().reverse();
+        lambda.getBody().accept(this, new Context(true));
+        tryExpressions.add(lambda);
+        return null;
+    }
+
+    @Override
+    public Void visitVariableReference(VariableReferenceExpression reference, Context context)
+    {
+        return null;
+    }
+
+    public List<RowExpression> getTryOrLambdaExpressionsPostOrder()
+    {
+        return tryExpressions.build();
+    }
+
+    static class Context
+    {
+        boolean inLambda;
+
+        public Context(boolean inLambda)
+        {
+            this.inLambda = inLambda;
+        }
+
+        public boolean isInLambda()
+        {
+            return inLambda;
+        }
     }
 }

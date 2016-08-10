@@ -60,7 +60,8 @@ public final class Serialization
         public Expression deserialize(JsonParser jsonParser, DeserializationContext deserializationContext)
                 throws IOException
         {
-            return rewriteQualifiedNamesToSymbolReferences(sqlParser.createExpression(jsonParser.readValueAs(String.class)));
+            Expression expression = sqlParser.createExpression(jsonParser.readValueAs(String.class));
+            return rewriteQualifiedNamesToSymbolReferences(expression);
         }
     }
 
@@ -79,7 +80,8 @@ public final class Serialization
         public FunctionCall deserialize(JsonParser jsonParser, DeserializationContext deserializationContext)
                 throws IOException
         {
-            return (FunctionCall) rewriteQualifiedNamesToSymbolReferences(sqlParser.createExpression(jsonParser.readValueAs(String.class)));
+            Expression expression = sqlParser.createExpression(jsonParser.readValueAs(String.class));
+            return (FunctionCall) rewriteQualifiedNamesToSymbolReferences(expression);
         }
     }
 }

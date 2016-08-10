@@ -147,7 +147,7 @@ public class MetadataManager
         this.tablePropertyManager = requireNonNull(tablePropertyManager, "tablePropertyManager is null");
         this.transactionManager = requireNonNull(transactionManager, "transactionManager is null");
 
-        verifyComparableOrderableContract();
+        //verifyComparableOrderableContract();
     }
 
     public static MetadataManager createTestMetadataManager()

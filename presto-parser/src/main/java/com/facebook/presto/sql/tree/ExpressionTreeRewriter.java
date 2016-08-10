@@ -559,7 +559,7 @@ public final class ExpressionTreeRewriter<C>
 
             Expression body = rewrite(node.getBody(), context.get());
             if (body != node.getBody()) {
-                return new LambdaExpression(node.getArguments(), body);
+                return new LambdaExpression(node.getArgumentNames(), body, node.isBodyContainsSymbolReferences());
             }
 
             return node;

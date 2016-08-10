@@ -56,6 +56,7 @@ import com.facebook.presto.sql.tree.InListExpression;
 import com.facebook.presto.sql.tree.InPredicate;
 import com.facebook.presto.sql.tree.IsNotNullPredicate;
 import com.facebook.presto.sql.tree.IsNullPredicate;
+import com.facebook.presto.sql.tree.LambdaExpression;
 import com.facebook.presto.sql.tree.LikePredicate;
 import com.facebook.presto.sql.tree.Literal;
 import com.facebook.presto.sql.tree.LogicalBinaryExpression;
@@ -76,6 +77,7 @@ import com.facebook.presto.sql.tree.SymbolReference;
 import com.facebook.presto.sql.tree.TryExpression;
 import com.facebook.presto.sql.tree.WhenClause;
 import com.facebook.presto.type.ArrayType;
+import com.facebook.presto.type.FunctionType;
 import com.facebook.presto.type.LikeFunctions;
 import com.facebook.presto.type.RowType;
 import com.facebook.presto.type.RowType.RowField;
@@ -88,7 +90,6 @@ import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
 import io.airlift.joni.Regex;
 import io.airlift.json.JsonCodec;
 import io.airlift.slice.Slice;
@@ -107,6 +108,7 @@ import static com.facebook.presto.spi.type.TypeSignature.parseTypeSignature;
 import static com.facebook.presto.spi.type.TypeUtils.writeNativeValue;
 import static com.facebook.presto.sql.analyzer.ExpressionAnalyzer.createConstantAnalyzer;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.EXPRESSION_NOT_CONSTANT;
+import static com.facebook.presto.sql.analyzer.TypeSignatureProvider.fromTypes;
 import static com.facebook.presto.sql.gen.TryCodeGenerator.tryExpressionExceptionHandler;
 import static com.facebook.presto.sql.planner.LiteralInterpreter.toExpression;
 import static com.facebook.presto.sql.planner.LiteralInterpreter.toExpressions;
@@ -910,7 +912,7 @@ public class ExpressionInterpreter
                 argumentValues.add(value);
                 argumentTypes.add(type);
             }
-            Signature functionSignature = metadata.getFunctionRegistry().resolveFunction(node.getName(), Lists.transform(argumentTypes, Type::getTypeSignature), false);
+            Signature functionSignature = metadata.getFunctionRegistry().resolveFunction(node.getName(), fromTypes(argumentTypes), false);
             ScalarFunctionImplementation function = metadata.getFunctionRegistry().getScalarFunctionImplementation(functionSignature);
             for (int i = 0; i < argumentValues.size(); i++) {
                 Object value = argumentValues.get(i);
@@ -924,6 +926,23 @@ public class ExpressionInterpreter
                 return new FunctionCall(node.getName(), node.getWindow(), node.isDistinct(), toExpressions(argumentValues, argumentTypes));
             }
             return invoke(session, function, argumentValues);
+        }
+
+        @Override
+        protected Object visitLambdaExpression(LambdaExpression node, Object context)
+        {
+            if (optimize) {
+                //TODO: FunctionType.getJavaType() needs to be something other than MethodHandle so that it can be turned back into Expression
+                //  in LiteralInterpreter.toExpression
+                return node;
+            }
+            checkArgument(node.isBodyContainsSymbolReferences());
+
+            Expression body = node.getBody();
+            List<String> argumentNames = node.getArgumentNames();
+            FunctionType functionType = (FunctionType) expressionTypes.get(node);
+
+            return LambdaExpressionStubGenerator.generate(functionType.getReturnType(), functionType.getArgumentTypes(), argumentNames, symbolResolver -> process(body, symbolResolver));
         }
 
         @Override

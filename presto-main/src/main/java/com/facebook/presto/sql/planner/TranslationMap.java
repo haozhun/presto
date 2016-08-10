@@ -22,7 +22,11 @@ import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.ExpressionRewriter;
 import com.facebook.presto.sql.tree.ExpressionTreeRewriter;
 import com.facebook.presto.sql.tree.FieldReference;
+import com.facebook.presto.sql.tree.LambdaExpression;
 import com.facebook.presto.sql.tree.QualifiedNameReference;
+import com.facebook.presto.type.FunctionType;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
 import java.util.HashMap;
 import java.util.List;
@@ -41,6 +45,7 @@ class TranslationMap
     // all expressions are rewritten in terms of fields declared by this relation plan
     private final RelationPlan rewriteBase;
     private final Analysis analysis;
+    private final SymbolAllocator symbolAllocator;
 
     // current mappings of underlying field -> symbol for translating direct field references
     private final Symbol[] fieldSymbols;
@@ -49,10 +54,11 @@ class TranslationMap
     private final Map<Expression, Symbol> expressionToSymbols = new HashMap<>();
     private final Map<Expression, Expression> expressionToExpressions = new HashMap<>();
 
-    public TranslationMap(RelationPlan rewriteBase, Analysis analysis)
+    public TranslationMap(RelationPlan rewriteBase, Analysis analysis, SymbolAllocator symbolAllocator)
     {
         this.rewriteBase = requireNonNull(rewriteBase, "rewriteBase is null");
         this.analysis = requireNonNull(analysis, "analysis is null");
+        this.symbolAllocator = requireNonNull(symbolAllocator, "symbolAllocator is null");
 
         fieldSymbols = new Symbol[rewriteBase.getOutputSymbols().size()];
     }
@@ -99,10 +105,10 @@ class TranslationMap
         Expression mapped = translateNamesToSymbols(expression);
 
         // then rewrite subexpressions in terms of the current mappings
-        return ExpressionTreeRewriter.rewriteWith(new ExpressionRewriter<Void>()
+        return ExpressionTreeRewriter.rewriteWith(new ExpressionRewriter<Context>()
         {
             @Override
-            public Expression rewriteExpression(Expression node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
+            public Expression rewriteExpression(Expression node, Context context, ExpressionTreeRewriter<Context> treeRewriter)
             {
                 if (expressionToSymbols.containsKey(node)) {
                     return expressionToSymbols.get(node).toSymbolReference();
@@ -204,66 +210,111 @@ class TranslationMap
         }
     }
 
+    private final Map<Expression, Expression> translatedExpressions = new HashMap<>();
     private Expression translateNamesToSymbols(Expression expression)
     {
-        return ExpressionTreeRewriter.rewriteWith(new ExpressionRewriter<Void>()
-        {
-            @Override
-            public Expression rewriteExpression(Expression node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
-            {
-                Expression rewrittenExpression = treeRewriter.defaultRewrite(node, context);
-                return coerceIfNecessary(node, rewrittenExpression);
-            }
+        return translatedExpressions.computeIfAbsent(expression, expressionToTranslate ->
+                ExpressionTreeRewriter.rewriteWith(new ExpressionRewriter<Context>()
+                {
+                    @Override
+                    public Expression rewriteExpression(Expression node, Context context, ExpressionTreeRewriter<Context> treeRewriter)
+                    {
+                        Expression rewrittenExpression = treeRewriter.defaultRewrite(node, context);
+                        return coerceIfNecessary(node, rewrittenExpression);
+                    }
 
-            @Override
-            public Expression rewriteFieldReference(FieldReference node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
-            {
-                Symbol symbol = rewriteBase.getSymbol(node.getFieldIndex());
-                checkState(symbol != null, "No symbol mapping for node '%s' (%s)", node, node.getFieldIndex());
-                return symbol.toSymbolReference();
-            }
+                    @Override
+                    public Expression rewriteFieldReference(FieldReference node, Context context, ExpressionTreeRewriter<Context> treeRewriter)
+                    {
+                        Symbol symbol = rewriteBase.getSymbol(node.getFieldIndex());
+                        checkState(symbol != null, "No symbol mapping for node '%s' (%s)", node, node.getFieldIndex());
+                        return symbol.toSymbolReference();
+                    }
 
-            @Override
-            public Expression rewriteQualifiedNameReference(QualifiedNameReference node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
-            {
-                return rewriteExpressionWithResolvedName(node);
-            }
+                    @Override
+                    public Expression rewriteQualifiedNameReference(QualifiedNameReference node, Context context, ExpressionTreeRewriter<Context> treeRewriter)
+                    {
+                        List<String> nameParts = node.getName().getParts();
+                        if (context.getLambdaNameToSymbol().isPresent()) {
+                            checkState(nameParts.size() == 1);
+                            checkState(context.getLambdaNameToSymbol().get().containsKey(nameParts.get(0)));
+                            Symbol symbol = context.getLambdaNameToSymbol().get().get(nameParts.get(0));
+                            return coerceIfNecessary(node, symbol.toSymbolReference());
+                        }
+                        else {
+                            return rewriteExpressionWithResolvedName(node);
+                        }
+                    }
 
-            private Expression rewriteExpressionWithResolvedName(Expression node)
-            {
-                return rewriteBase.getSymbol(node)
-                        .map(symbol -> coerceIfNecessary(node, symbol.toSymbolReference()))
-                        .orElse(node);
-            }
-
-            @Override
-            public Expression rewriteDereferenceExpression(DereferenceExpression node, Void context, ExpressionTreeRewriter<Void> treeRewriter)
-            {
-                Optional<ResolvedField> resolvedField = rewriteBase.getScope().tryResolveField(node);
-                if (resolvedField.isPresent()) {
-                    if (resolvedField.get().isLocal()) {
+                    private Expression rewriteExpressionWithResolvedName(Expression node)
+                    {
                         return rewriteBase.getSymbol(node)
                                 .map(symbol -> coerceIfNecessary(node, symbol.toSymbolReference()))
-                                .orElseThrow(() -> new IllegalStateException("No symbol mapping for node " + node));
+                                .orElse(node);
                     }
-                    // do not rewrite outer references, it will be handled in outer scope planner
-                    return node;
-                }
-                return rewriteExpression(node, context, treeRewriter);
-            }
 
-            private Expression coerceIfNecessary(Expression original, Expression rewritten)
-            {
-                Type coercion = analysis.getCoercion(original);
-                if (coercion != null) {
-                    rewritten = new Cast(
-                            rewritten,
-                            coercion.getTypeSignature().toString(),
-                            false,
-                            analysis.isTypeOnlyCoercion(original));
-                }
-                return rewritten;
-            }
-        }, expression);
+                    @Override
+                    public Expression rewriteDereferenceExpression(DereferenceExpression node, Context context, ExpressionTreeRewriter<Context> treeRewriter)
+                    {
+                        Optional<ResolvedField> resolvedField = rewriteBase.getScope().tryResolveField(node);
+                        if (resolvedField.isPresent()) {
+                            if (resolvedField.get().isLocal()) {
+                                return rewriteBase.getSymbol(node)
+                                        .map(symbol -> coerceIfNecessary(node, symbol.toSymbolReference()))
+                                        .orElseThrow(() -> new IllegalStateException("No symbol mapping for node " + node));
+                            }
+                            // do not rewrite outer references, it will be handled in outer scope planner
+                            return node;
+                        }
+                        return rewriteExpression(node, context, treeRewriter);
+                    }
+
+                    @Override
+                    public Expression rewriteLambdaExpression(LambdaExpression node, Context context, ExpressionTreeRewriter<Context> treeRewriter)
+                    {
+                        checkState(analysis.getCoercion(node) == null, "cannot coerce a lambda expression");
+
+                        List<Type> argumentTypes = ((FunctionType) analysis.getType(node)).getArgumentTypes();
+                        List<String> argumentNames = node.getArgumentNames();
+                        ImmutableMap.Builder<String, Symbol> lambdaNameToSymbol = ImmutableMap.builder();
+                        ImmutableList.Builder<String> newArgumentNames = ImmutableList.builder();
+                        for (int i = 0; i < argumentNames.size(); i++) {
+                            String argumentName = argumentNames.get(i);
+                            Symbol symbol = symbolAllocator.newSymbol(argumentName, argumentTypes.get(i));
+                            lambdaNameToSymbol.put(argumentName, symbol);
+                            newArgumentNames.add(symbol.getName());
+                        }
+                        Expression rewrittenBody = treeRewriter.rewrite(node.getBody(), new Context(Optional.of(lambdaNameToSymbol.build())));
+                        return new LambdaExpression(newArgumentNames.build(), rewrittenBody, true);
+                    }
+
+                    private Expression coerceIfNecessary(Expression original, Expression rewritten)
+                    {
+                        Type coercion = analysis.getCoercion(original);
+                        if (coercion != null) {
+                            rewritten = new Cast(
+                                    rewritten,
+                                    coercion.getTypeSignature().toString(),
+                                    false,
+                                    analysis.isTypeOnlyCoercion(original));
+                        }
+                        return rewritten;
+                    }
+                }, expressionToTranslate, new Context(Optional.empty())));
+    }
+
+    private static class Context
+    {
+        private final Optional<Map<String, Symbol>> lambdaNameToSymbol;
+
+        public Context(Optional<Map<String, Symbol>> lambdaNameToSymbol)
+        {
+            this.lambdaNameToSymbol = requireNonNull(lambdaNameToSymbol, "lambdaNameToSymbol is null");
+        }
+
+        public Optional<Map<String, Symbol>> getLambdaNameToSymbol()
+        {
+            return lambdaNameToSymbol;
+        }
     }
 }

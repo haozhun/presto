@@ -1193,7 +1193,7 @@ class AstBuilder
 
         Expression body = (Expression) visit(context.expression());
 
-        return new LambdaExpression(arguments, body);
+        return new LambdaExpression(arguments, body, false);
     }
 
     @Override

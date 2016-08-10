@@ -46,9 +46,9 @@ class PlanBuilder
         this.parameters = parameters;
     }
 
-    public TranslationMap copyTranslations()
+    public TranslationMap copyTranslations(SymbolAllocator symbolAllocator)
     {
-        TranslationMap translations = new TranslationMap(getRelationPlan(), getAnalysis());
+        TranslationMap translations = new TranslationMap(getRelationPlan(), getAnalysis(), symbolAllocator);
         translations.copyMappingsFrom(getTranslations());
         return translations;
     }
@@ -100,7 +100,7 @@ class PlanBuilder
 
     public PlanBuilder appendProjections(Iterable<Expression> expressions, SymbolAllocator symbolAllocator, PlanNodeIdAllocator idAllocator)
     {
-        TranslationMap translations = copyTranslations();
+        TranslationMap translations = copyTranslations(symbolAllocator);
 
         ImmutableMap.Builder<Symbol, Expression> projections = ImmutableMap.builder();
 

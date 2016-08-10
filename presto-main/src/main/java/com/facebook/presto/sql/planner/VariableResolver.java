@@ -11,13 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.facebook.presto.sql.relational;
 
-public interface RowExpressionVisitor<C, R>
+package com.facebook.presto.sql.planner;
+
+public interface VariableResolver
 {
-    R visitCall(CallExpression call, C context);
-    R visitInputReference(InputReferenceExpression reference, C context);
-    R visitConstant(ConstantExpression literal, C context);
-    R visitLambda(LambdaDefinitionExpression lambda, C context);
-    R visitVariableReference(VariableReferenceExpression reference, C context);
+    Object getValue(String name);
 }

@@ -672,6 +672,14 @@ public abstract class AbstractTestQueries
     }
 
     @Test
+    public void testApplyFunction()
+            throws Exception
+    {
+        assertQuery("SELECT APPLY(x -> x + 1, 5)", "SELECT 6");
+        assertQuery("SELECT APPLY(x -> x + 1, 5 + RANDOM(1))", "SELECT 6");
+    }
+
+    @Test
     public void testSumOfNulls()
             throws Exception
     {

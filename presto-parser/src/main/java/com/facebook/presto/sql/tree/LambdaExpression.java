@@ -24,25 +24,27 @@ public class LambdaExpression
 {
     private final List<String> arguments;
     private final Expression body;
+    private final boolean bodyContainsSymbolReferences;
 
-    public LambdaExpression(List<String> arguments, Expression body)
+    public LambdaExpression(List<String> arguments, Expression body, boolean bodyContainsSymbolReferences)
     {
-        this(Optional.empty(), arguments, body);
+        this(Optional.empty(), arguments, body, bodyContainsSymbolReferences);
     }
 
-    public LambdaExpression(NodeLocation location, List<String> arguments, Expression body)
+    public LambdaExpression(NodeLocation location, List<String> arguments, Expression body, boolean bodyContainsSymbolReferences)
     {
-        this(Optional.of(location), arguments, body);
+        this(Optional.of(location), arguments, body, bodyContainsSymbolReferences);
     }
 
-    private LambdaExpression(Optional<NodeLocation> location, List<String> arguments, Expression body)
+    private LambdaExpression(Optional<NodeLocation> location, List<String> arguments, Expression body, boolean bodyContainsSymbolReferences)
     {
         super(location);
         this.arguments = requireNonNull(arguments, "arguments is null");
         this.body = requireNonNull(body, "body is null");
+        this.bodyContainsSymbolReferences = bodyContainsSymbolReferences;
     }
 
-    public List<String> getArguments()
+    public List<String> getArgumentNames()
     {
         return arguments;
     }
@@ -50,6 +52,11 @@ public class LambdaExpression
     public Expression getBody()
     {
         return body;
+    }
+
+    public boolean isBodyContainsSymbolReferences()
+    {
+        return bodyContainsSymbolReferences;
     }
 
     @Override

@@ -185,7 +185,7 @@ class QueryPlanner
         Scope scope = Scope.builder().withRelationType(new RelationType(fields.build())).build();
         RelationPlan relationPlan = new RelationPlan(tableScan, scope, outputSymbols.build(), Optional.empty());
 
-        TranslationMap translations = new TranslationMap(relationPlan, analysis);
+        TranslationMap translations = new TranslationMap(relationPlan, analysis, symbolAllocator);
         translations.setFieldMappings(relationPlan.getOutputSymbols());
 
         PlanBuilder builder = new PlanBuilder(translations, relationPlan.getRoot(), relationPlan.getSampleWeight(), analysis.getParameters());
@@ -217,7 +217,7 @@ class QueryPlanner
         RelationPlan relationPlan = new RelationPlanner(analysis, symbolAllocator, idAllocator, metadata, session)
                 .process(query.getQueryBody(), null);
 
-        TranslationMap translations = new TranslationMap(relationPlan, analysis);
+        TranslationMap translations = new TranslationMap(relationPlan, analysis, symbolAllocator);
 
         // Make field->symbol mapping from underlying relation plan available for translations
         // This makes it possible to rewrite FieldOrExpressions that reference fields from the QuerySpecification directly
@@ -238,7 +238,7 @@ class QueryPlanner
             relationPlan = planImplicitTable(node);
         }
 
-        TranslationMap translations = new TranslationMap(relationPlan, analysis);
+        TranslationMap translations = new TranslationMap(relationPlan, analysis, symbolAllocator);
 
         // Make field->symbol mapping from underlying relation plan available for translations
         // This makes it possible to rewrite FieldOrExpressions that reference fields from the FROM clause directly
@@ -276,7 +276,7 @@ class QueryPlanner
 
     private PlanBuilder project(PlanBuilder subPlan, Iterable<Expression> expressions)
     {
-        TranslationMap outputTranslations = new TranslationMap(subPlan.getRelationPlan(), analysis);
+        TranslationMap outputTranslations = new TranslationMap(subPlan.getRelationPlan(), analysis, symbolAllocator);
 
         ImmutableMap.Builder<Symbol, Expression> projections = ImmutableMap.builder();
         for (Expression expression : expressions) {
@@ -327,7 +327,7 @@ class QueryPlanner
 
     private PlanBuilder explicitCoercionFields(PlanBuilder subPlan, Iterable<Expression> alreadyCoerced, Iterable<? extends Expression> uncoerced)
     {
-        TranslationMap translations = new TranslationMap(subPlan.getRelationPlan(), analysis);
+        TranslationMap translations = new TranslationMap(subPlan.getRelationPlan(), analysis, symbolAllocator);
         ImmutableMap.Builder<Symbol, Expression> projections = ImmutableMap.builder();
 
         projections.putAll(coerce(uncoerced, subPlan, translations));
@@ -351,7 +351,7 @@ class QueryPlanner
 
     private PlanBuilder explicitCoercionSymbols(PlanBuilder subPlan, Iterable<Symbol> alreadyCoerced, Iterable<? extends Expression> uncoerced)
     {
-        TranslationMap translations = subPlan.copyTranslations();
+        TranslationMap translations = subPlan.copyTranslations(symbolAllocator);
         ImmutableMap.Builder<Symbol, Expression> projections = ImmutableMap.builder();
 
         projections.putAll(coerce(uncoerced, subPlan, translations));
@@ -396,7 +396,7 @@ class QueryPlanner
         // 2. Aggregate
 
         // 2.a. Rewrite group by expressions in terms of pre-projected inputs
-        TranslationMap translations = new TranslationMap(subPlan.getRelationPlan(), analysis);
+        TranslationMap translations = new TranslationMap(subPlan.getRelationPlan(), analysis, symbolAllocator);
         ImmutableList.Builder<List<Symbol>> groupingSetsSymbolsBuilder = ImmutableList.builder();
         ImmutableSet.Builder<Symbol> distinctGroupingSymbolsBuilder = ImmutableSet.builder();
         for (List<Expression> groupingSet : groupingSets) {
@@ -588,7 +588,7 @@ class QueryPlanner
                     frameStartType, frameStartSymbol,
                     frameEndType, frameEndSymbol);
 
-            TranslationMap outputTranslations = subPlan.copyTranslations();
+            TranslationMap outputTranslations = subPlan.copyTranslations(symbolAllocator);
 
             // Rewrite function call in terms of pre-projected inputs
             Expression parametersReplaced = ExpressionTreeRewriter.rewriteWith(new ParameterRewriter(analysis.getParameters(), analysis), windowFunction);

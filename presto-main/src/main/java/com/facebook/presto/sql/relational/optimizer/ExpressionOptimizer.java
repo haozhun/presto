@@ -22,8 +22,10 @@ import com.facebook.presto.spi.type.TypeManager;
 import com.facebook.presto.sql.relational.CallExpression;
 import com.facebook.presto.sql.relational.ConstantExpression;
 import com.facebook.presto.sql.relational.InputReferenceExpression;
+import com.facebook.presto.sql.relational.LambdaDefinitionExpression;
 import com.facebook.presto.sql.relational.RowExpression;
 import com.facebook.presto.sql.relational.RowExpressionVisitor;
+import com.facebook.presto.sql.relational.VariableReferenceExpression;
 import com.google.common.collect.Iterables;
 
 import java.lang.invoke.MethodHandle;
@@ -150,6 +152,8 @@ public class ExpressionOptimizer
                     .map(argument -> argument.accept(this, context))
                     .collect(toImmutableList());
 
+            //TODO! make it possible to optimize through lambda and lambda is deterministic
+            // test apply(x -> x + 1, 3) => 4
             if (Iterables.all(arguments, instanceOf(ConstantExpression.class)) && function.isDeterministic()) {
                 MethodHandle method = function.getMethodHandle();
 
@@ -181,6 +185,18 @@ public class ExpressionOptimizer
             }
 
             return call(signature, typeManager.getType(signature.getReturnType()), arguments);
+        }
+
+        @Override
+        public RowExpression visitLambda(LambdaDefinitionExpression lambda, Void context)
+        {
+            return new LambdaDefinitionExpression(lambda.getArgumentTypes(), lambda.getArguments(), lambda.getBody().accept(this, context));
+        }
+
+        @Override
+        public RowExpression visitVariableReference(VariableReferenceExpression reference, Void context)
+        {
+            return reference;
         }
     }
 }

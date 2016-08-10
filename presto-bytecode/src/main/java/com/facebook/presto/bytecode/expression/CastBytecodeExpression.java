@@ -22,7 +22,6 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
-import static com.facebook.presto.bytecode.ParameterizedType.type;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.primitives.Primitives.wrap;
 import static java.lang.String.format;
@@ -43,7 +42,7 @@ class CastBytecodeExpression
 
         // if we have a primitive to object or object to primitive conversion, it must be an exact boxing or unboxing conversion
         if (instance.getType().isPrimitive() != type.isPrimitive()) {
-            checkArgument(unwrapPrimitiveType(instance.getType()) == unwrapPrimitiveType(type), "Type %s can not be cast to %s", instance.getType(), type);
+            //checkArgument(unwrapPrimitiveType(instance.getType()) == unwrapPrimitiveType(type), "Type %s can not be cast to %s", instance.getType(), type);
         }
     }
 
@@ -54,12 +53,21 @@ class CastBytecodeExpression
 
         if (instance.getType().isPrimitive()) {
             Class<?> sourceType = instance.getType().getPrimitiveType();
-            castPrimitiveToPrimitive(block, sourceType, unwrapPrimitiveType(getType()));
+            Class<?> targetUnwrappedType = unwrapPrimitiveType(getType());
 
-            // insert boxing conversion
+            // insert primitive to primitive cast if the target type is an unwrapped/wrapped primitive type
+            if (targetUnwrappedType != null) {
+                castPrimitiveToPrimitive(block, sourceType, targetUnwrappedType);
+            }
+
+            // insert boxing conversion if the target type is not an unwrapped primitive type
             if (!getType().isPrimitive()) {
-                Class<?> primitiveTargetType = unwrapPrimitiveType(getType());
-                return block.invokeStatic(getType(), "valueOf", getType(), type(primitiveTargetType));
+                block.invokeStatic(wrap(sourceType), "valueOf", wrap(sourceType), sourceType);
+            }
+
+            // insert checked cast if the target type is not an unwrapped/wrapped primitive type
+            if (targetUnwrappedType == null) {
+                block.checkCast(getType());
             }
 
             return block;
@@ -67,6 +75,10 @@ class CastBytecodeExpression
         else if (getType().isPrimitive()) {
             // unbox
             Class<?> targetType = getType().getPrimitiveType();
+            // if we have a object to primitive conversion, a cast to boxed type must be inserted if not already a match
+            if (unwrapPrimitiveType(instance.getType()) != targetType) {
+                block.checkCast(wrap(targetType));
+            }
             return block.invokeVirtual(wrap(targetType), targetType.getSimpleName() + "Value", targetType);
         }
         else {

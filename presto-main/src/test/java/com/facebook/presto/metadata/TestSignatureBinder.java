@@ -35,6 +35,7 @@ import static com.facebook.presto.metadata.Signature.typeVariable;
 import static com.facebook.presto.metadata.Signature.withVariadicBound;
 import static com.facebook.presto.spi.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.spi.type.TypeSignature.parseTypeSignature;
+import static com.facebook.presto.sql.analyzer.TypeSignatureProvider.fromTypes;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toList;
 import static org.testng.Assert.assertEquals;
@@ -1090,10 +1091,10 @@ public class TestSignatureBinder
             assertNotNull(argumentTypes);
             SignatureBinder signatureBinder = new SignatureBinder(typeRegistry, function, allowCoercion);
             if (returnType == null) {
-                return signatureBinder.bindVariables(argumentTypes);
+                return signatureBinder.bindVariables(fromTypes(argumentTypes));
             }
             else {
-                return signatureBinder.bindVariables(argumentTypes, returnType);
+                return signatureBinder.bindVariables(fromTypes(argumentTypes), returnType);
             }
         }
     }
