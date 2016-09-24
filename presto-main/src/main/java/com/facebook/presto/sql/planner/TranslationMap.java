@@ -41,6 +41,7 @@ class TranslationMap
     // all expressions are rewritten in terms of fields declared by this relation plan
     private final RelationPlan rewriteBase;
     private final Analysis analysis;
+    private final SymbolAllocator symbolAllocator;
 
     // current mappings of underlying field -> symbol for translating direct field references
     private final Symbol[] fieldSymbols;
@@ -49,10 +50,11 @@ class TranslationMap
     private final Map<Expression, Symbol> expressionToSymbols = new HashMap<>();
     private final Map<Expression, Expression> expressionToExpressions = new HashMap<>();
 
-    public TranslationMap(RelationPlan rewriteBase, Analysis analysis)
+    public TranslationMap(RelationPlan rewriteBase, Analysis analysis, SymbolAllocator symbolAllocator)
     {
         this.rewriteBase = requireNonNull(rewriteBase, "rewriteBase is null");
         this.analysis = requireNonNull(analysis, "analysis is null");
+        this.symbolAllocator = requireNonNull(symbolAllocator, "symbolAllocator is null");
 
         fieldSymbols = new Symbol[rewriteBase.getOutputSymbols().size()];
     }
