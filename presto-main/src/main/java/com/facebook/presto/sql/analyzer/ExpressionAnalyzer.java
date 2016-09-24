@@ -728,14 +728,14 @@ public class ExpressionAnalyzer
                 }
             }
 
-            ImmutableList.Builder<TypeSignature> argumentTypes = ImmutableList.builder();
+            ImmutableList.Builder<TypeSignatureProvider> argumentTypesBuilder = ImmutableList.builder();
             for (Expression expression : node.getArguments()) {
-                argumentTypes.add(process(expression, context).getTypeSignature());
+                argumentTypesBuilder.add(new TypeSignatureProvider(process(expression, context).getTypeSignature()));
             }
 
             Signature function;
             try {
-                function = functionRegistry.resolveFunction(node.getName(), argumentTypes.build());
+                function = functionRegistry.resolveFunction(node.getName(), argumentTypesBuilder.build());
             }
             catch (PrestoException e) {
                 if (e.getErrorCode().getCode() == StandardErrorCode.FUNCTION_NOT_FOUND.toErrorCode().getCode()) {
