@@ -22,7 +22,12 @@ import com.facebook.presto.sql.tree.Expression;
 import com.facebook.presto.sql.tree.ExpressionRewriter;
 import com.facebook.presto.sql.tree.ExpressionTreeRewriter;
 import com.facebook.presto.sql.tree.FieldReference;
+import com.facebook.presto.sql.tree.LambdaExpression;
 import com.facebook.presto.sql.tree.QualifiedNameReference;
+import com.facebook.presto.type.FunctionType;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Iterables;
 
 import java.util.HashMap;
 import java.util.IdentityHashMap;
@@ -234,7 +239,16 @@ class TranslationMap
                     @Override
                     public Expression rewriteQualifiedNameReference(QualifiedNameReference node, Context context, ExpressionTreeRewriter<Context> treeRewriter)
                     {
-                        return rewriteExpressionWithResolvedName(node);
+                        List<String> nameParts = node.getName().getParts();
+                        if (context.getLambdaNameToSymbol().isPresent()) {
+                            String variableName = Iterables.getOnlyElement(nameParts);
+                            checkState(context.getLambdaNameToSymbol().get().containsKey(variableName));
+                            Symbol symbol = context.getLambdaNameToSymbol().get().get(variableName);
+                            return coerceIfNecessary(node, symbol.toSymbolReference());
+                        }
+                        else {
+                            return rewriteExpressionWithResolvedName(node);
+                        }
                     }
 
                     private Expression rewriteExpressionWithResolvedName(Expression node)
@@ -260,6 +274,25 @@ class TranslationMap
                         return rewriteExpression(node, context, treeRewriter);
                     }
 
+                    @Override
+                    public Expression rewriteLambdaExpression(LambdaExpression node, Context context, ExpressionTreeRewriter<Context> treeRewriter)
+                    {
+                        checkState(analysis.getCoercion(node) == null, "cannot coerce a lambda expression");
+
+                        List<Type> argumentTypes = ((FunctionType) analysis.getType(node)).getArgumentTypes();
+                        List<String> argumentNames = node.getArgumentNames();
+                        ImmutableMap.Builder<String, Symbol> lambdaNameToSymbol = ImmutableMap.builder();
+                        ImmutableList.Builder<String> newArgumentNames = ImmutableList.builder();
+                        for (int i = 0; i < argumentNames.size(); i++) {
+                            String argumentName = argumentNames.get(i);
+                            Symbol symbol = symbolAllocator.newSymbol(argumentName, argumentTypes.get(i));
+                            lambdaNameToSymbol.put(argumentName, symbol);
+                            newArgumentNames.add(symbol.getName());
+                        }
+                        Expression rewrittenBody = treeRewriter.rewrite(node.getBody(), new Context(Optional.of(lambdaNameToSymbol.build())));
+                        return new LambdaExpression(newArgumentNames.build(), rewrittenBody, true);
+                    }
+
                     private Expression coerceIfNecessary(Expression original, Expression rewritten)
                     {
                         Type coercion = analysis.getCoercion(original);
@@ -272,10 +305,21 @@ class TranslationMap
                         }
                         return rewritten;
                     }
-                }, expressionToTranslate, new Context()));
+                }, expressionToTranslate, new Context(Optional.empty())));
     }
 
     private static class Context
     {
+        private final Optional<Map<String, Symbol>> lambdaNameToSymbol;
+
+        public Context(Optional<Map<String, Symbol>> lambdaNameToSymbol)
+        {
+            this.lambdaNameToSymbol = requireNonNull(lambdaNameToSymbol, "lambdaNameToSymbol is null");
+        }
+
+        public Optional<Map<String, Symbol>> getLambdaNameToSymbol()
+        {
+            return lambdaNameToSymbol;
+        }
     }
 }

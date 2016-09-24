@@ -13,11 +13,15 @@
  */
 package com.facebook.presto.sql.gen;
 
+import com.facebook.presto.spi.PrestoException;
+import com.facebook.presto.spi.StandardErrorCode;
 import com.facebook.presto.sql.relational.CallExpression;
 import com.facebook.presto.sql.relational.ConstantExpression;
 import com.facebook.presto.sql.relational.InputReferenceExpression;
+import com.facebook.presto.sql.relational.LambdaDefinitionExpression;
 import com.facebook.presto.sql.relational.RowExpression;
 import com.facebook.presto.sql.relational.RowExpressionVisitor;
+import com.facebook.presto.sql.relational.VariableReferenceExpression;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -26,23 +30,23 @@ import static com.facebook.presto.sql.relational.Signatures.TRY;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.Iterables.getOnlyElement;
 
-public class TryExpressionExtractor
+public class LambdaAndTryExpressionExtractor
 {
-    private TryExpressionExtractor()
+    private LambdaAndTryExpressionExtractor()
     {
     }
 
-    public static List<CallExpression> extractTryExpressions(RowExpression expression)
+    public static List<RowExpression> extractLambdaAndTryExpressions(RowExpression expression)
     {
-        Visitor tryOrLambdaExtractor = new Visitor();
-        expression.accept(tryOrLambdaExtractor, new Context());
-        return tryOrLambdaExtractor.getTryExpressionsPreOrder();
+        Visitor visitor = new Visitor();
+        expression.accept(visitor, new Context(false));
+        return visitor.getLambdaAndTryExpressionsPostOrder();
     }
 
     private static class Visitor
             implements RowExpressionVisitor<Context, Void>
     {
-        private final ImmutableList.Builder<CallExpression> tryExpressions = ImmutableList.builder();
+        private final ImmutableList.Builder<RowExpression> lambdaAndTryExpressions = ImmutableList.builder();
 
         @Override
         public Void visitInputReference(InputReferenceExpression node, Context context)
@@ -54,17 +58,22 @@ public class TryExpressionExtractor
         @Override
         public Void visitCall(CallExpression call, Context context)
         {
-            if (call.getSignature().getName().equals(TRY)) {
+            boolean isTry = call.getSignature().getName().equals(TRY);
+            if (isTry) {
                 checkState(call.getArguments().size() == 1, "try call expressions must have a single argument");
                 checkState(getOnlyElement(call.getArguments()) instanceof CallExpression, "try call expression argument must be a call expression");
-
-                tryExpressions.add((CallExpression) getOnlyElement(call.getArguments()));
+                if (context.isInLambda()) {
+                    throw new PrestoException(StandardErrorCode.NOT_SUPPORTED, "Try expression inside lambda expression is not support yet");
+                }
             }
 
             for (RowExpression rowExpression : call.getArguments()) {
-                rowExpression.accept(this, null);
+                rowExpression.accept(this, context);
             }
 
+            if (isTry) {
+                lambdaAndTryExpressions.add(getOnlyElement(call.getArguments()));
+            }
             return null;
         }
 
@@ -74,13 +83,38 @@ public class TryExpressionExtractor
             return null;
         }
 
-        public List<CallExpression> getTryExpressionsPreOrder()
+        @Override
+        public Void visitLambda(LambdaDefinitionExpression lambda, Context context)
         {
-            return tryExpressions.build().reverse();
+            lambda.getBody().accept(this, new Context(true));
+            lambdaAndTryExpressions.add(lambda);
+            return null;
+        }
+
+        @Override
+        public Void visitVariableReference(VariableReferenceExpression reference, Context context)
+        {
+            return null;
+        }
+
+        private List<RowExpression> getLambdaAndTryExpressionsPostOrder()
+        {
+            return lambdaAndTryExpressions.build();
         }
     }
 
     private static class Context
     {
+        private final boolean inLambda;
+
+        public Context(boolean inLambda)
+        {
+            this.inLambda = inLambda;
+        }
+
+        public boolean isInLambda()
+        {
+            return inLambda;
+        }
     }
 }

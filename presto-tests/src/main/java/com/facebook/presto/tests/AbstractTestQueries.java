@@ -171,6 +171,24 @@ public abstract class AbstractTestQueries
     }
 
     @Test
+    public void testNonDeterministic()
+    {
+        MaterializedResult materializedResult = computeActual("SELECT rand() FROM orders LIMIT 10");
+        long distinctCount = materializedResult.getMaterializedRows().stream()
+                .map(row -> row.getField(0))
+                .distinct()
+                .count();
+        assertTrue(distinctCount >= 8, "rand() must produce different rows");
+
+        materializedResult = computeActual("SELECT apply(x -> x + rand(), 1) FROM orders LIMIT 10");
+        distinctCount = materializedResult.getMaterializedRows().stream()
+                .map(row -> row.getField(0))
+                .distinct()
+                .count();
+        assertTrue(distinctCount >= 8, "rand() must produce different rows");
+    }
+
+    @Test
     public void testNonDeterministicFilter()
     {
         MaterializedResult materializedResult = computeActual("SELECT u FROM ( SELECT if(rand() > 0.5, 0, 1) AS u ) WHERE u <> u");

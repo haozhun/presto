@@ -28,7 +28,6 @@ import com.facebook.presto.spi.type.DecimalParseResult;
 import com.facebook.presto.spi.type.Decimals;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spi.type.TypeManager;
-import com.facebook.presto.spi.type.TypeSignature;
 import com.facebook.presto.spi.type.TypeSignatureParameter;
 import com.facebook.presto.spi.type.VarcharType;
 import com.facebook.presto.sql.parser.SqlParser;
@@ -60,6 +59,7 @@ import com.facebook.presto.sql.tree.InPredicate;
 import com.facebook.presto.sql.tree.IntervalLiteral;
 import com.facebook.presto.sql.tree.IsNotNullPredicate;
 import com.facebook.presto.sql.tree.IsNullPredicate;
+import com.facebook.presto.sql.tree.LambdaExpression;
 import com.facebook.presto.sql.tree.LikePredicate;
 import com.facebook.presto.sql.tree.LogicalBinaryExpression;
 import com.facebook.presto.sql.tree.LongLiteral;
@@ -84,6 +84,7 @@ import com.facebook.presto.sql.tree.TimestampLiteral;
 import com.facebook.presto.sql.tree.TryExpression;
 import com.facebook.presto.sql.tree.WhenClause;
 import com.facebook.presto.sql.tree.WindowFrame;
+import com.facebook.presto.type.FunctionType;
 import com.facebook.presto.type.RowType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -122,6 +123,7 @@ import static com.facebook.presto.sql.analyzer.SemanticErrorCode.INVALID_LITERAL
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.INVALID_PARAMETER_USAGE;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.MULTIPLE_FIELDS_FROM_SUBQUERY;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.NOT_SUPPORTED;
+import static com.facebook.presto.sql.analyzer.SemanticErrorCode.STANDALONE_LAMBDA;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.TYPE_MISMATCH;
 import static com.facebook.presto.sql.analyzer.SemanticExceptions.throwMissingAttributeException;
 import static com.facebook.presto.sql.tree.Extract.Field.TIMEZONE_HOUR;
@@ -212,8 +214,14 @@ public class ExpressionAnalyzer
 
     public Type analyze(Expression expression, Scope scope)
     {
-        Visitor visitor = new Visitor(scope);
-        return visitor.process(expression, new StackableAstVisitor.StackableAstVisitorContext<>(new Context()));
+        Visitor visitor = new Visitor(scope, symbolTypes);
+        return visitor.process(expression, new StackableAstVisitor.StackableAstVisitorContext<>(new Context(false)));
+    }
+
+    private Type analyze(Expression expression, Scope scope, Context context)
+    {
+        Visitor visitor = new Visitor(scope, symbolTypes);
+        return visitor.process(expression, new StackableAstVisitor.StackableAstVisitorContext<>(context));
     }
 
     public Set<SubqueryExpression> getScalarSubqueries()
@@ -230,10 +238,12 @@ public class ExpressionAnalyzer
             extends StackableAstVisitor<Type, Context>
     {
         private final Scope scope;
+        private final Map<Symbol, Type> symbolTypes;
 
-        private Visitor(Scope scope)
+        private Visitor(Scope scope, Map<Symbol, Type> symbolTypes)
         {
             this.scope = requireNonNull(scope, "scope is null");
+            this.symbolTypes = requireNonNull(symbolTypes, "symbolTypes is null");
         }
 
         @SuppressWarnings("SuspiciousMethodCalls")
@@ -730,7 +740,62 @@ public class ExpressionAnalyzer
 
             ImmutableList.Builder<TypeSignatureProvider> argumentTypesBuilder = ImmutableList.builder();
             for (Expression expression : node.getArguments()) {
-                argumentTypesBuilder.add(new TypeSignatureProvider(process(expression, context).getTypeSignature()));
+                if (expression instanceof LambdaExpression) {
+                    LambdaExpression lambdaExpression = (LambdaExpression) expression;
+
+                    // captures are not supported for now, use empty tuple descriptor
+                    Expression lambdaBody = lambdaExpression.getBody();
+                    List<String> lambdaArgumentNames = lambdaExpression.getArgumentNames();
+                    boolean bodyContainsSymbolReferences = lambdaExpression.isBodyContainsSymbolReferences();
+                    if (bodyContainsSymbolReferences) {
+                        argumentTypesBuilder.add(new TypeSignatureProvider(
+                                types -> {
+                                    checkArgument(types.size() == lambdaArgumentNames.size());
+
+                                    ImmutableMap.Builder<Symbol, Type> symbolTypesBuilder = ImmutableMap.builder();
+
+                                    for (int i = 0; i < types.size(); i++) {
+                                        symbolTypesBuilder.put(new Symbol(lambdaArgumentNames.get(i)), types.get(i));
+                                    }
+
+                                    ExpressionAnalyzer expressionAnalyzer = new ExpressionAnalyzer(
+                                            functionRegistry,
+                                            typeManager,
+                                            statementAnalyzerFactory,
+                                            session,
+                                            symbolTypesBuilder.build(),
+                                            parameters);
+
+                                    return new FunctionType(types, expressionAnalyzer.analyze(lambdaBody, scope, new Context(true))).getTypeSignature();
+                                }));
+                    }
+                    else {
+                        ExpressionAnalyzer expressionAnalyzer = new ExpressionAnalyzer(
+                                functionRegistry,
+                                typeManager,
+                                statementAnalyzerFactory,
+                                session,
+                                symbolTypes,
+                                parameters);
+
+                        argumentTypesBuilder.add(new TypeSignatureProvider(
+                                types -> {
+                                    checkArgument(types.size() == lambdaArgumentNames.size());
+
+                                    ImmutableList.Builder<Field> fieldsBuilder = ImmutableList.builder();
+                                    for (int i = 0; i < types.size(); i++) {
+                                        Field field = new Field(Optional.empty(), Optional.of(lambdaArgumentNames.get(i)), types.get(i), false);
+
+                                        fieldsBuilder.add(field);
+                                    }
+                                    Scope scope = Scope.builder().withRelationType(new RelationType(fieldsBuilder.build())).build();
+                                    return new FunctionType(types, expressionAnalyzer.analyze(lambdaBody, scope, new Context(true))).getTypeSignature();
+                                }));
+                    }
+                }
+                else {
+                    argumentTypesBuilder.add(new TypeSignatureProvider(process(expression, context).getTypeSignature()));
+                }
             }
 
             Signature function;
@@ -749,12 +814,51 @@ public class ExpressionAnalyzer
 
             for (int i = 0; i < node.getArguments().size(); i++) {
                 Expression expression = node.getArguments().get(i);
-                Type type = typeManager.getType(function.getArgumentTypes().get(i));
-                requireNonNull(type, format("Type %s not found", function.getArgumentTypes().get(i)));
-                if (node.isDistinct() && !type.isComparable()) {
-                    throw new SemanticException(TYPE_MISMATCH, node, "DISTINCT can only be applied to comparable types (actual: %s)", type);
+                Type expectedType = typeManager.getType(function.getArgumentTypes().get(i));
+                requireNonNull(expectedType, format("Type %s not found", function.getArgumentTypes().get(i)));
+                if (node.isDistinct() && !expectedType.isComparable()) {
+                    throw new SemanticException(TYPE_MISMATCH, node, "DISTINCT can only be applied to comparable types (actual: %s)", expectedType);
                 }
-                coerceType(context, expression, type, format("Function %s argument %d", function, i));
+                if (argumentTypes.get(i).hasDependency()) {
+                    FunctionType functionType = (FunctionType) expectedType;
+                    List<Type> functionArgumentTypes = functionType.getArgumentTypes();
+                    LambdaExpression lambdaExpression = (LambdaExpression) expression;
+                    List<String> lambdaArgumentNames = lambdaExpression.getArgumentNames();
+
+                    Scope scope;
+                    Map<Symbol, Type> symbolTypes;
+                    checkArgument(functionArgumentTypes.size() == lambdaArgumentNames.size());
+                    if (lambdaExpression.isBodyContainsSymbolReferences()) {
+                        ImmutableMap.Builder<Symbol, Type> symbolTypesBuilder = ImmutableMap.builder();
+
+                        for (int j = 0; j < functionArgumentTypes.size(); j++) {
+                            symbolTypesBuilder.put(new Symbol(lambdaArgumentNames.get(j)), functionArgumentTypes.get(j));
+                        }
+
+                        scope = Scope.create();
+                        symbolTypes = symbolTypesBuilder.build();
+                    }
+                    else {
+                        ImmutableList.Builder<Field> fieldsBuilder = ImmutableList.builder();
+                        for (int j = 0; j < functionArgumentTypes.size(); j++) {
+                            Field field = new Field(Optional.empty(), Optional.of(lambdaArgumentNames.get(j)), functionArgumentTypes.get(j), false);
+                            fieldsBuilder.add(field);
+                        }
+
+                        scope = Scope.builder().withRelationType(new RelationType(fieldsBuilder.build())).build();
+                        symbolTypes = ImmutableMap.of();
+                    }
+
+                    // This skips visitLambdaExpression, and processed the lambda body directly
+                    Type actualType = new Visitor(scope, symbolTypes).process(lambdaExpression.getBody(), context);
+                    coerceType(lambdaExpression.getBody(), actualType, functionType.getReturnType(), format("Function %s argument %d", function, i));
+                    expressionTypes.put(lambdaExpression.getBody(), functionType.getReturnType());
+                    expressionTypes.put(lambdaExpression, functionType);
+                }
+                else {
+                    Type actualType = typeManager.getType(argumentTypes.get(i).getTypeSignature());
+                    coerceType(expression, actualType, expectedType, format("Function %s argument %d", function, i));
+                }
             }
             resolvedFunctions.put(node, function);
 
@@ -839,6 +943,9 @@ public class ExpressionAnalyzer
         @Override
         public Type visitTryExpression(TryExpression node, StackableAstVisitorContext<Context> context)
         {
+            if (context.getContext().isInLambda()) {
+                throw new PrestoException(StandardErrorCode.NOT_SUPPORTED, "Try expression inside lambda expression is not support yet");
+            }
             Type type = process(node.getInnerExpression(), context);
             expressionTypes.put(node, type);
             return type;
@@ -963,6 +1070,14 @@ public class ExpressionAnalyzer
         }
 
         @Override
+        protected Type visitLambdaExpression(LambdaExpression node, StackableAstVisitorContext<Context> context)
+        {
+            // visitFunctionCall looks through LambdaExpression if any function argument is a LambdaExpression,
+            // and handles the analysis of the LambdaExpression itself.
+            throw new SemanticException(STANDALONE_LAMBDA, node, "lambda expression should always be used inside a function");
+        }
+
+        @Override
         protected Type visitExpression(Expression node, StackableAstVisitorContext<Context> context)
         {
             throw new SemanticException(NOT_SUPPORTED, node, "not yet implemented: " + node.getClass().getName());
@@ -1007,9 +1122,8 @@ public class ExpressionAnalyzer
             return type;
         }
 
-        private void coerceType(StackableAstVisitorContext<Context> context, Expression expression, Type expectedType, String message)
+        private void coerceType(Expression expression, Type actualType, Type expectedType, String message)
         {
-            Type actualType = process(expression, context);
             if (!actualType.equals(expectedType)) {
                 if (!typeManager.canCoerce(actualType, expectedType)) {
                     throw new SemanticException(TYPE_MISMATCH, expression, message + " must evaluate to a %s (actual: %s)", expectedType, actualType);
@@ -1019,6 +1133,12 @@ public class ExpressionAnalyzer
                     typeOnlyCoercions.add(expression);
                 }
             }
+        }
+
+        private void coerceType(StackableAstVisitorContext<Context> context, Expression expression, Type expectedType, String message)
+        {
+            Type actualType = process(expression, context);
+            coerceType(expression, actualType, expectedType, message);
         }
 
         private Type coerceToSingleType(StackableAstVisitorContext<Context> context, Node node, String message, Expression first, Expression second)
@@ -1092,6 +1212,17 @@ public class ExpressionAnalyzer
 
     private static class Context
     {
+        private final boolean isInLambda;
+
+        public Context(boolean isInLambda)
+        {
+            this.isInLambda = isInLambda;
+        }
+
+        public boolean isInLambda()
+        {
+            return isInLambda;
+        }
     }
 
     public static IdentityHashMap<Expression, Type> getExpressionTypes(

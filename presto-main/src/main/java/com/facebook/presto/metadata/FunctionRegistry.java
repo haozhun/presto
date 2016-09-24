@@ -195,6 +195,7 @@ import static com.facebook.presto.operator.aggregation.MinBy.MIN_BY;
 import static com.facebook.presto.operator.aggregation.MinByNAggregationFunction.MIN_BY_N_AGGREGATION;
 import static com.facebook.presto.operator.aggregation.MinNAggregationFunction.MIN_N_AGGREGATION;
 import static com.facebook.presto.operator.aggregation.MultimapAggregationFunction.MULTIMAP_AGG;
+import static com.facebook.presto.operator.scalar.ApplyFunction.APPLY_FUNCTION;
 import static com.facebook.presto.operator.scalar.ArrayConstructor.ARRAY_CONSTRUCTOR;
 import static com.facebook.presto.operator.scalar.ArrayFlattenFunction.ARRAY_FLATTEN_FUNCTION;
 import static com.facebook.presto.operator.scalar.ArrayJoin.ARRAY_JOIN;
@@ -284,7 +285,6 @@ import static com.facebook.presto.util.Types.checkType;
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
-import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.Iterables.getOnlyElement;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
@@ -524,6 +524,7 @@ public class FunctionRegistry
                 .function(DECIMAL_MOD_FUNCTION)
                 .functions(DECIMAL_ROUND_FUNCTIONS)
                 .function(DECIMAL_TRUNCATE_FUNCTION)
+                .function(APPLY_FUNCTION)
                 .function(TRY_CAST);
 
         builder.function(new ArrayAggregationFunction(featuresConfig.isLegacyArrayAgg()));
@@ -682,7 +683,10 @@ public class FunctionRegistry
         }
 
         Optional<List<Type>> optionalParameterTypes = toTypes(parameterTypeSignatureProviders, typeManager);
-        verify(optionalParameterTypes.isPresent());
+        if (!optionalParameterTypes.isPresent()) {
+            // give up and return all remaining matches
+            return mostSpecificFunctions;
+        }
 
         List<Type> parameters = optionalParameterTypes.get();
         if (!someParameterIsUnknown(parameters)) {

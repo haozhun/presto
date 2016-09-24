@@ -348,7 +348,7 @@ public final class ExpressionFormatter
             StringBuilder builder = new StringBuilder();
 
             builder.append('(');
-            Joiner.on(", ").appendTo(builder, node.getArguments());
+            Joiner.on(", ").appendTo(builder, node.getArgumentNames());
             builder.append(") -> ");
             builder.append(process(node.getBody(), unmangleNames));
             return builder.toString();

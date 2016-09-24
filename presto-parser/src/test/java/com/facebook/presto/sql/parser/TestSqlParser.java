@@ -1500,13 +1500,15 @@ public class TestSqlParser
         assertExpression("x -> sin(x)",
                 new LambdaExpression(
                         ImmutableList.of("x"),
-                        new FunctionCall(QualifiedName.of("sin"), ImmutableList.of(new QualifiedNameReference(QualifiedName.of("x"))))));
+                        new FunctionCall(QualifiedName.of("sin"), ImmutableList.of(new QualifiedNameReference(QualifiedName.of("x")))),
+                        false));
         assertExpression("(x, y) -> mod(x, y)",
                 new LambdaExpression(
                         ImmutableList.of("x", "y"),
                         new FunctionCall(
                                 QualifiedName.of("mod"),
-                                ImmutableList.of(new QualifiedNameReference(QualifiedName.of("x")), new QualifiedNameReference(QualifiedName.of("y"))))));
+                                ImmutableList.of(new QualifiedNameReference(QualifiedName.of("x")), new QualifiedNameReference(QualifiedName.of("y")))),
+                        false));
     }
 
     @Test
