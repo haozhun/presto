@@ -197,6 +197,7 @@ import static com.facebook.presto.operator.aggregation.MinNAggregationFunction.M
 import static com.facebook.presto.operator.aggregation.MultimapAggregationFunction.MULTIMAP_AGG;
 import static com.facebook.presto.operator.scalar.ApplyFunction.APPLY_FUNCTION;
 import static com.facebook.presto.operator.scalar.ArrayConstructor.ARRAY_CONSTRUCTOR;
+import static com.facebook.presto.operator.scalar.ArrayFilterFunction.ARRAY_FILTER_FUNCTION;
 import static com.facebook.presto.operator.scalar.ArrayFlattenFunction.ARRAY_FLATTEN_FUNCTION;
 import static com.facebook.presto.operator.scalar.ArrayJoin.ARRAY_JOIN;
 import static com.facebook.presto.operator.scalar.ArrayJoin.ARRAY_JOIN_WITH_NULL_REPLACEMENT;
@@ -204,6 +205,7 @@ import static com.facebook.presto.operator.scalar.ArraySubscriptOperator.ARRAY_S
 import static com.facebook.presto.operator.scalar.ArrayToArrayCast.ARRAY_TO_ARRAY_CAST;
 import static com.facebook.presto.operator.scalar.ArrayToElementConcatFunction.ARRAY_TO_ELEMENT_CONCAT_FUNCTION;
 import static com.facebook.presto.operator.scalar.ArrayToJsonCast.ARRAY_TO_JSON;
+import static com.facebook.presto.operator.scalar.ArrayTransformFunction.ARRAY_TRANSFORM_FUNCTION;
 import static com.facebook.presto.operator.scalar.CastFromUnknownOperator.CAST_FROM_UNKNOWN;
 import static com.facebook.presto.operator.scalar.ConcatFunction.CONCAT;
 import static com.facebook.presto.operator.scalar.ElementToArrayConcatFunction.ELEMENT_TO_ARRAY_CONCAT_FUNCTION;
@@ -524,7 +526,7 @@ public class FunctionRegistry
                 .function(DECIMAL_MOD_FUNCTION)
                 .functions(DECIMAL_ROUND_FUNCTIONS)
                 .function(DECIMAL_TRUNCATE_FUNCTION)
-                .function(APPLY_FUNCTION)
+                .functions(APPLY_FUNCTION, ARRAY_TRANSFORM_FUNCTION)
                 .function(TRY_CAST);
 
         builder.function(new ArrayAggregationFunction(featuresConfig.isLegacyArrayAgg()));
