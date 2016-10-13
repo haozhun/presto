@@ -5400,6 +5400,15 @@ public abstract class AbstractTestQueries
     }
 
     @Test
+    public void testLambdaCapture()
+            throws Exception
+    {
+        // Regular lambda tests can be found in TestApplyFunctions
+
+        assertQuery("SELECT apply(x -> x + c2, c1) FROM (VALUES (1, 2), (3, 4), (5, 6)) t(c1, c2)", "VALUES 3, 7, 11");
+    }
+
+    @Test
     public void testTry()
             throws Exception
     {

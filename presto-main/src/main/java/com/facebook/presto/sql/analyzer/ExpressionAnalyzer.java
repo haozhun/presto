@@ -758,12 +758,15 @@ public class ExpressionAnalyzer
                                         symbolTypesBuilder.put(new Symbol(lambdaArgumentNames.get(i)), types.get(i));
                                     }
 
+                                    symbolTypesBuilder.putAll(symbolTypes);
+
                                     ExpressionAnalyzer expressionAnalyzer = new ExpressionAnalyzer(
                                             functionRegistry,
                                             typeManager,
                                             statementAnalyzerFactory,
                                             session,
-                                            symbolTypesBuilder.build(),
+                                            //symbolTypesBuilder.build(),
+                                            symbolTypes,
                                             parameters);
 
                                     return new FunctionType(types, expressionAnalyzer.analyze(lambdaBody, scope, new Context(true))).getTypeSignature();
@@ -788,8 +791,12 @@ public class ExpressionAnalyzer
 
                                         fieldsBuilder.add(field);
                                     }
-                                    Scope scope = Scope.builder().withRelationType(new RelationType(fieldsBuilder.build())).build();
-                                    return new FunctionType(types, expressionAnalyzer.analyze(lambdaBody, scope, new Context(true))).getTypeSignature();
+                                    Scope lambdaScope = Scope.builder()
+                                            .markQueryBoundary()
+                                            .withParent(scope)
+                                            .withRelationType(new RelationType(fieldsBuilder.build()))
+                                            .build();
+                                    return new FunctionType(types, expressionAnalyzer.analyze(lambdaBody, lambdaScope, new Context(true))).getTypeSignature();
                                 }));
                     }
                 }
@@ -825,8 +832,8 @@ public class ExpressionAnalyzer
                     LambdaExpression lambdaExpression = (LambdaExpression) expression;
                     List<String> lambdaArgumentNames = lambdaExpression.getArgumentNames();
 
-                    Scope scope;
-                    Map<Symbol, Type> symbolTypes;
+                    Scope lambdaScope;
+                    Map<Symbol, Type> lambdaSymbolTypes;
                     checkArgument(functionArgumentTypes.size() == lambdaArgumentNames.size());
                     if (lambdaExpression.isBodyContainsSymbolReferences()) {
                         ImmutableMap.Builder<Symbol, Type> symbolTypesBuilder = ImmutableMap.builder();
@@ -835,8 +842,8 @@ public class ExpressionAnalyzer
                             symbolTypesBuilder.put(new Symbol(lambdaArgumentNames.get(j)), functionArgumentTypes.get(j));
                         }
 
-                        scope = Scope.create();
-                        symbolTypes = symbolTypesBuilder.build();
+                        lambdaScope = Scope.create();
+                        lambdaSymbolTypes = symbolTypes;
                     }
                     else {
                         ImmutableList.Builder<Field> fieldsBuilder = ImmutableList.builder();
@@ -845,12 +852,16 @@ public class ExpressionAnalyzer
                             fieldsBuilder.add(field);
                         }
 
-                        scope = Scope.builder().withRelationType(new RelationType(fieldsBuilder.build())).build();
-                        symbolTypes = ImmutableMap.of();
+                        lambdaScope = Scope.builder()
+                                .markQueryBoundary()
+                                .withParent(scope)
+                                .withRelationType(new RelationType(fieldsBuilder.build()))
+                                .build();
+                        lambdaSymbolTypes = ImmutableMap.of();
                     }
 
                     // This skips visitLambdaExpression, and processed the lambda body directly
-                    Type actualType = new Visitor(scope, symbolTypes).process(lambdaExpression.getBody(), context);
+                    Type actualType = new Visitor(lambdaScope, lambdaSymbolTypes).process(lambdaExpression.getBody(), context);
                     coerceType(lambdaExpression.getBody(), actualType, functionType.getReturnType(), format("Function %s argument %d", function, i));
                     expressionTypes.put(lambdaExpression.getBody(), functionType.getReturnType());
                     expressionTypes.put(lambdaExpression, functionType);

@@ -242,13 +242,12 @@ class TranslationMap
                         List<String> nameParts = node.getName().getParts();
                         if (context.getLambdaNameToSymbol().isPresent()) {
                             String variableName = Iterables.getOnlyElement(nameParts);
-                            checkState(context.getLambdaNameToSymbol().get().containsKey(variableName));
-                            Symbol symbol = context.getLambdaNameToSymbol().get().get(variableName);
-                            return coerceIfNecessary(node, symbol.toSymbolReference());
+                            if (context.getLambdaNameToSymbol().get().containsKey(variableName)) {
+                                Symbol symbol = context.getLambdaNameToSymbol().get().get(variableName);
+                                return coerceIfNecessary(node, symbol.toSymbolReference());
+                            }
                         }
-                        else {
-                            return rewriteExpressionWithResolvedName(node);
-                        }
+                        return rewriteExpressionWithResolvedName(node);
                     }
 
                     private Expression rewriteExpressionWithResolvedName(Expression node)
