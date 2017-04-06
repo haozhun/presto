@@ -26,6 +26,7 @@ import com.facebook.presto.bytecode.control.IfStatement;
 import com.facebook.presto.bytecode.expression.BytecodeExpression;
 import com.facebook.presto.bytecode.instruction.LabelNode;
 import com.facebook.presto.metadata.Metadata;
+import com.facebook.presto.operator.AbortSignal;
 import com.facebook.presto.operator.PageProcessor;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.Page;
@@ -76,6 +77,7 @@ import static com.facebook.presto.bytecode.expression.BytecodeExpressions.invoke
 import static com.facebook.presto.bytecode.expression.BytecodeExpressions.lessThan;
 import static com.facebook.presto.bytecode.expression.BytecodeExpressions.newArray;
 import static com.facebook.presto.bytecode.expression.BytecodeExpressions.newInstance;
+import static com.facebook.presto.bytecode.expression.BytecodeExpressions.or;
 import static com.facebook.presto.bytecode.instruction.JumpInstruction.jump;
 import static com.facebook.presto.sql.gen.BytecodeUtils.generateWrite;
 import static com.facebook.presto.sql.gen.BytecodeUtils.loadConstant;
@@ -166,7 +168,8 @@ public class PageProcessorCompiler
         Parameter start = arg("start", int.class);
         Parameter end = arg("end", int.class);
         Parameter pageBuilder = arg("pageBuilder", PageBuilder.class);
-        MethodDefinition method = classDefinition.declareMethod(a(PUBLIC), "process", type(int.class), session, page, start, end, pageBuilder);
+        Parameter abortSignal = arg("abortSignal", AbortSignal.class);
+        MethodDefinition method = classDefinition.declareMethod(a(PUBLIC), "process", type(int.class), session, page, start, end, pageBuilder, abortSignal);
 
         Scope scope = method.getScope();
         BytecodeBlock body = method.getBody();
@@ -201,7 +204,9 @@ public class PageProcessorCompiler
                 .update(position.set(add(position, constantInt(1))))
                 .body(new BytecodeBlock()
                         .append(new IfStatement()
-                                .condition(pageBuilder.invoke("isFull", boolean.class))
+                                .condition(or(
+                                        pageBuilder.invoke("isFull", boolean.class),
+                                        abortSignal.invoke("shouldAbort", boolean.class)))
                                 .ifTrue(jump(done)))
                         .append(new IfStatement()
                                 .condition(invokeFilter(thisVariable, session, expressionInputBlocks.get(filter), position))

@@ -60,7 +60,7 @@ public class GenericPageProcessor
     }
 
     @Override
-    public int process(ConnectorSession session, Page page, int start, int end, PageBuilder pageBuilder)
+    public int process(ConnectorSession session, Page page, int start, int end, PageBuilder pageBuilder, AbortSignal abortSignal)
     {
         int position = start;
         Block[] inputBlocks = page.getBlocks();

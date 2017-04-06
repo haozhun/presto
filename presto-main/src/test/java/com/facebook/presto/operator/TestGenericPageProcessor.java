@@ -23,6 +23,7 @@ import java.util.List;
 
 import static com.facebook.presto.SequencePageBuilder.createSequencePage;
 import static com.facebook.presto.SequencePageBuilder.createSequencePageWithDictionaryBlocks;
+import static com.facebook.presto.operator.AbortSignal.neverAbortSignal;
 import static com.facebook.presto.operator.FilterFunctions.TRUE_FUNCTION;
 import static com.facebook.presto.operator.PageAssertions.assertPageEquals;
 import static com.facebook.presto.operator.ProjectionFunctions.singleColumn;
@@ -43,7 +44,7 @@ public class TestGenericPageProcessor
             throws Exception
     {
         Page page = createPage(types, false);
-        processor.process(SESSION, page, 0, page.getPositionCount(), pageBuilder);
+        processor.process(SESSION, page, 0, page.getPositionCount(), pageBuilder, neverAbortSignal());
         Page outputPage = pageBuilder.build();
         assertPageEquals(types, outputPage, page);
     }

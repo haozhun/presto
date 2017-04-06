@@ -23,6 +23,7 @@ import org.testng.annotations.Test;
 import java.util.List;
 
 import static com.facebook.presto.RowPagesBuilder.rowPagesBuilder;
+import static com.facebook.presto.operator.AbortSignal.neverAbortSignal;
 import static com.facebook.presto.operator.PageAssertions.assertPageEquals;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.BooleanType.BOOLEAN;
@@ -52,7 +53,7 @@ public class TestTupleFilterProcessor
                 .build());
 
         PageBuilder pageBuilder = new PageBuilder(outputTypes);
-        int end = tupleFilterProcessor.process(SESSION, inputPage, 0, inputPage.getPositionCount(), pageBuilder);
+        int end = tupleFilterProcessor.process(SESSION, inputPage, 0, inputPage.getPositionCount(), pageBuilder, neverAbortSignal());
         Page actualPage = pageBuilder.build();
 
         Page expectedPage = Iterables.getOnlyElement(rowPagesBuilder(outputTypes)
@@ -84,7 +85,7 @@ public class TestTupleFilterProcessor
                 .build());
 
         PageBuilder pageBuilder = new PageBuilder(outputTypes);
-        int end = tupleFilterProcessor.process(SESSION, inputPage, 1, 4, pageBuilder);
+        int end = tupleFilterProcessor.process(SESSION, inputPage, 1, 4, pageBuilder, neverAbortSignal());
         Page actualPage = pageBuilder.build();
 
         Page expectedPage = Iterables.getOnlyElement(rowPagesBuilder(outputTypes)

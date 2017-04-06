@@ -59,6 +59,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+import static com.facebook.presto.operator.AbortSignal.neverAbortSignal;
 import static com.facebook.presto.spi.type.DoubleType.DOUBLE;
 import static com.facebook.presto.spi.type.VarcharType.createUnboundedVarcharType;
 import static com.facebook.presto.testing.TestingConnectorSession.SESSION;
@@ -83,7 +84,7 @@ public class BenchmarkMapConcat
         int position = 0;
         List<Page> pages = new ArrayList<>();
         while (position < data.getPage().getPositionCount()) {
-            position = data.getPageProcessor().process(SESSION, data.getPage(), position, data.getPage().getPositionCount(), data.getPageBuilder());
+            position = data.getPageProcessor().process(SESSION, data.getPage(), position, data.getPage().getPositionCount(), data.getPageBuilder(), neverAbortSignal());
             pages.add(data.getPageBuilder().build());
             data.getPageBuilder().reset();
         }

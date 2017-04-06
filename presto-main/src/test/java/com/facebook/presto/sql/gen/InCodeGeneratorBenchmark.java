@@ -43,6 +43,7 @@ import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
 import static com.facebook.presto.metadata.FunctionKind.SCALAR;
+import static com.facebook.presto.operator.AbortSignal.neverAbortSignal;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.spi.type.DoubleType.DOUBLE;
@@ -135,7 +136,7 @@ public class InCodeGeneratorBenchmark
     public Page benchmark()
     {
         PageBuilder pageBuilder = new PageBuilder(ImmutableList.of(prestoType));
-        int count = processor.process(null, inputPage, 0, inputPage.getPositionCount(), pageBuilder);
+        int count = processor.process(null, inputPage, 0, inputPage.getPositionCount(), pageBuilder, neverAbortSignal());
         checkState(count == inputPage.getPositionCount());
         return pageBuilder.build();
     }

@@ -65,6 +65,7 @@ import static com.facebook.presto.RowPagesBuilder.rowPagesBuilder;
 import static com.facebook.presto.SessionTestUtils.TEST_SESSION;
 import static com.facebook.presto.metadata.FunctionKind.SCALAR;
 import static com.facebook.presto.metadata.MetadataManager.createTestMetadataManager;
+import static com.facebook.presto.operator.AbortSignal.neverAbortSignal;
 import static com.facebook.presto.operator.scalar.FunctionAssertions.createExpression;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.DecimalType.createDecimalType;
@@ -553,7 +554,7 @@ public class BenchmarkDecimalOperators
 
         while (currentPosition < PAGE_SIZE) {
             pageBuilder.reset();
-            currentPosition = processor.process(null, inputPage, currentPosition, inputPage.getPositionCount(), pageBuilder);
+            currentPosition = processor.process(null, inputPage, currentPosition, inputPage.getPositionCount(), pageBuilder, neverAbortSignal());
             pages.add(pageBuilder.build());
         }
 

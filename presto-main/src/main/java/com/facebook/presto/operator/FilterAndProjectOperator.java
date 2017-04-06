@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.function.Supplier;
 
 import static com.facebook.presto.SystemSessionProperties.getProcessingOptimization;
+import static com.facebook.presto.operator.AbortSignal.neverAbortSignal;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
@@ -108,7 +109,7 @@ public class FilterAndProjectOperator
                     return page;
                 }
                 case FeaturesConfig.ProcessingOptimization.DISABLED: {
-                    currentPosition = processor.process(operatorContext.getSession().toConnectorSession(), currentPage, currentPosition, currentPage.getPositionCount(), pageBuilder);
+                    currentPosition = processor.process(operatorContext.getSession().toConnectorSession(), currentPage, currentPosition, currentPage.getPositionCount(), pageBuilder, neverAbortSignal());
                     if (currentPosition == currentPage.getPositionCount()) {
                         currentPage = null;
                         currentPosition = 0;

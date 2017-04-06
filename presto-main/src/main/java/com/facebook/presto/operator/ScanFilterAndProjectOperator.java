@@ -38,6 +38,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 
 import static com.facebook.presto.SystemSessionProperties.getProcessingOptimization;
+import static com.facebook.presto.operator.AbortSignal.neverAbortSignal;
 import static com.facebook.presto.sql.analyzer.FeaturesConfig.ProcessingOptimization.COLUMNAR;
 import static com.facebook.presto.sql.analyzer.FeaturesConfig.ProcessingOptimization.COLUMNAR_DICTIONARY;
 import static com.facebook.presto.sql.analyzer.FeaturesConfig.ProcessingOptimization.DISABLED;
@@ -274,7 +275,7 @@ public class ScanFilterAndProjectOperator
                             return page;
                         }
                         case DISABLED: {
-                            currentPosition = pageProcessor.process(operatorContext.getSession().toConnectorSession(), currentPage, currentPosition, currentPage.getPositionCount(), pageBuilder);
+                            currentPosition = pageProcessor.process(operatorContext.getSession().toConnectorSession(), currentPage, currentPosition, currentPage.getPositionCount(), pageBuilder, neverAbortSignal());
                             if (currentPosition == currentPage.getPositionCount()) {
                                 currentPage = null;
                                 currentPosition = 0;

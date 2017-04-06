@@ -14,6 +14,7 @@
 package com.facebook.presto.benchmark;
 
 import com.facebook.presto.metadata.Signature;
+import com.facebook.presto.operator.AbortSignal;
 import com.facebook.presto.operator.AggregationOperator.AggregationOperatorFactory;
 import com.facebook.presto.operator.FilterAndProjectOperator;
 import com.facebook.presto.operator.OperatorFactory;
@@ -84,7 +85,7 @@ public class HandTpchQuery6
         private static final int MAX_SHIP_DATE = DateTimeUtils.parseDate("1995-01-01");
 
         @Override
-        public int process(ConnectorSession session, Page page, int start, int end, PageBuilder pageBuilder)
+        public int process(ConnectorSession session, Page page, int start, int end, PageBuilder pageBuilder, AbortSignal abortSignal)
         {
             Block discountBlock = page.getBlock(1);
             int position = start;

@@ -54,6 +54,7 @@ import java.util.concurrent.TimeUnit;
 
 import static com.facebook.presto.metadata.FunctionKind.SCALAR;
 import static com.facebook.presto.metadata.MetadataManager.createTestMetadataManager;
+import static com.facebook.presto.operator.AbortSignal.neverAbortSignal;
 import static com.facebook.presto.operator.scalar.FunctionAssertions.createExpression;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
@@ -114,7 +115,7 @@ public class PageProcessorBenchmark
     public Page rowOriented()
     {
         PageBuilder pageBuilder = new PageBuilder(types);
-        int end = processor.process(null, inputPage, 0, inputPage.getPositionCount(), pageBuilder);
+        int end = processor.process(null, inputPage, 0, inputPage.getPositionCount(), pageBuilder, neverAbortSignal());
         return pageBuilder.build();
     }
 

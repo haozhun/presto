@@ -51,6 +51,7 @@ import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
+import static com.facebook.presto.operator.AbortSignal.neverAbortSignal;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
 import static com.facebook.presto.testing.TestingConnectorSession.SESSION;
@@ -74,7 +75,7 @@ public class BenchmarkArrayJoin
         int position = 0;
         List<Page> pages = new ArrayList<>();
         while (position < data.getPage().getPositionCount()) {
-            position = data.getPageProcessor().process(SESSION, data.getPage(), position, data.getPage().getPositionCount(), data.getPageBuilder());
+            position = data.getPageProcessor().process(SESSION, data.getPage(), position, data.getPage().getPositionCount(), data.getPageBuilder(), neverAbortSignal());
             pages.add(data.getPageBuilder().build());
             data.getPageBuilder().reset();
         }

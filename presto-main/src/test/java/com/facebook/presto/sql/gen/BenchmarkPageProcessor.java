@@ -15,6 +15,7 @@ package com.facebook.presto.sql.gen;
 
 import com.facebook.presto.metadata.MetadataManager;
 import com.facebook.presto.metadata.Signature;
+import com.facebook.presto.operator.AbortSignal;
 import com.facebook.presto.operator.PageProcessor;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.Page;
@@ -48,6 +49,7 @@ import java.util.concurrent.TimeUnit;
 
 import static com.facebook.presto.metadata.FunctionKind.SCALAR;
 import static com.facebook.presto.metadata.Signature.internalOperator;
+import static com.facebook.presto.operator.AbortSignal.neverAbortSignal;
 import static com.facebook.presto.spi.type.BooleanType.BOOLEAN;
 import static com.facebook.presto.spi.type.DateType.DATE;
 import static com.facebook.presto.spi.type.DoubleType.DOUBLE;
@@ -116,7 +118,7 @@ public class BenchmarkPageProcessor
     public static Page execute(Page inputPage, PageProcessor processor)
     {
         PageBuilder pageBuilder = new PageBuilder(ImmutableList.of(DOUBLE));
-        int count = processor.process(null, inputPage, 0, inputPage.getPositionCount(), pageBuilder);
+        int count = processor.process(null, inputPage, 0, inputPage.getPositionCount(), pageBuilder, neverAbortSignal());
         checkState(count == inputPage.getPositionCount());
         return pageBuilder.build();
     }
@@ -142,7 +144,7 @@ public class BenchmarkPageProcessor
             implements PageProcessor
     {
         @Override
-        public int process(ConnectorSession session, Page page, int start, int end, PageBuilder pageBuilder)
+        public int process(ConnectorSession session, Page page, int start, int end, PageBuilder pageBuilder, AbortSignal abortSignal)
         {
             Block discountBlock = page.getBlock(DISCOUNT);
             int position = start;

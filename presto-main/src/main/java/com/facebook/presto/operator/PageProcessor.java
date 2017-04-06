@@ -24,7 +24,7 @@ import java.util.List;
 
 public interface PageProcessor
 {
-    int process(ConnectorSession session, Page page, int start, int end, PageBuilder pageBuilder);
+    int process(ConnectorSession session, Page page, int start, int end, PageBuilder pageBuilder, AbortSignal abortSignal);
 
     /**
      * @return filtered and projected page, null if all positions are filtered

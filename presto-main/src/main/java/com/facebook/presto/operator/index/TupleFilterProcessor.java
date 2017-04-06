@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.operator.index;
 
+import com.facebook.presto.operator.AbortSignal;
 import com.facebook.presto.operator.PageProcessor;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.Page;
@@ -53,7 +54,7 @@ public class TupleFilterProcessor
     }
 
     @Override
-    public int process(ConnectorSession session, Page page, int start, int end, PageBuilder pageBuilder)
+    public int process(ConnectorSession session, Page page, int start, int end, PageBuilder pageBuilder, AbortSignal abortSignal)
     {
         // TODO: generate bytecode for this in the future
         for (int position = start; position < end; position++) {
