@@ -80,10 +80,9 @@ public class BenchmarkArrayHashCodeOperator
 {
     private static final int POSITIONS = 100_000;
     private static final int ARRAY_SIZE = 100;
-    private static final int NUM_TYPES = 4;
 
     @Benchmark
-    @OperationsPerInvocation(POSITIONS * ARRAY_SIZE * NUM_TYPES)
+    @OperationsPerInvocation(POSITIONS)
     public Object arrayHashCode(BenchmarkData data)
             throws Throwable
     {
@@ -101,7 +100,7 @@ public class BenchmarkArrayHashCodeOperator
     @State(Scope.Thread)
     public static class BenchmarkData
     {
-        @Param({"$operator$hash_code", "old_hash", "another_hash"})
+        @Param({"$operator$hash_code"})
         private String name = FunctionRegistry.mangleOperatorName(HASH_CODE);
 
         @Param({"BIGINT", "VARCHAR", "DOUBLE", "BOOLEAN"})
@@ -201,7 +200,7 @@ public class BenchmarkArrayHashCodeOperator
 
         Options options = new OptionsBuilder()
                 .verbosity(VerboseMode.NORMAL)
-                .warmupMode(WarmupMode.BULK)
+                .warmupMode(WarmupMode.INDI)
                 .include(".*" + BenchmarkArrayHashCodeOperator.class.getSimpleName() + ".*")
                 .build();
         new Runner(options).run();
