@@ -27,6 +27,7 @@ import static com.facebook.presto.spi.type.VarcharType.createUnboundedVarcharTyp
 
 public final class HiveSessionProperties
 {
+    private static final String BUCKET_BY_BUCKET_ENABLED = "bucket_by_bucket_enabled";
     private static final String BUCKET_EXECUTION_ENABLED = "bucket_execution_enabled";
     private static final String FORCE_LOCAL_SCHEDULING = "force_local_scheduling";
     private static final String ORC_BLOOM_FILTERS_ENABLED = "orc_bloom_filters_enabled";
@@ -115,6 +116,11 @@ public final class HiveSessionProperties
                         "Max initial split size",
                         config.getMaxInitialSplitSize(),
                         true),
+                booleanSessionProperty(
+                        BUCKET_BY_BUCKET_ENABLED,
+                        "Experimental: bucket by bucket execution",
+                        true,
+                        false),
                 booleanSessionProperty(
                         RCFILE_OPTIMIZED_WRITER_ENABLED,
                         "Experimental: RCFile: Enable optimized writer",

@@ -265,8 +265,13 @@ public final class HiveUtil
         return HIVE_TIMESTAMP_PARSER.withZone(timeZone).parseMillis(value);
     }
 
-    static boolean isSplittable(InputFormat<?, ?> inputFormat, FileSystem fileSystem, Path path)
+    static boolean isSplittable(InputFormat<?, ?> inputFormat, FileSystem fileSystem, Path path, boolean enableBucketByBucket)
     {
+        if (enableBucketByBucket) {
+            // TODO! HACK
+            return false;
+        }
+
         // ORC uses a custom InputFormat but is always splittable
         if (inputFormat.getClass().getSimpleName().equals("OrcInputFormat")) {
             return true;

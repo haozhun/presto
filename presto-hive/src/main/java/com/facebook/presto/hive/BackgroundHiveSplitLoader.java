@@ -73,6 +73,7 @@ import static com.facebook.presto.hive.HiveErrorCode.HIVE_INVALID_METADATA;
 import static com.facebook.presto.hive.HiveErrorCode.HIVE_INVALID_PARTITION_VALUE;
 import static com.facebook.presto.hive.HiveSessionProperties.getMaxInitialSplitSize;
 import static com.facebook.presto.hive.HiveSessionProperties.getMaxSplitSize;
+import static com.facebook.presto.hive.HiveSessionProperties.isBucketExecutionEnabled;
 import static com.facebook.presto.hive.HiveUtil.checkCondition;
 import static com.facebook.presto.hive.HiveUtil.getInputFormat;
 import static com.facebook.presto.hive.HiveUtil.isSplittable;
@@ -252,7 +253,11 @@ public class BackgroundHiveSplitLoader
                 }
             }
             else {
-                boolean splittable = isSplittable(files.getInputFormat(), hdfsEnvironment.getFileSystem(session.getUser(), file.getPath()), file.getPath());
+                boolean splittable = isSplittable(
+                        files.getInputFormat(),
+                        hdfsEnvironment.getFileSystem(session.getUser(), file.getPath()),
+                        file.getPath(),
+                        isBucketExecutionEnabled(session));
 
                 CompletableFuture<?> future = hiveSplitSource.addToQueue(createHiveSplitIterator(
                         files.getPartitionName(),
@@ -337,7 +342,11 @@ public class BackgroundHiveSplitLoader
             for (HiveBucket bucket : buckets) {
                 int bucketNumber = bucket.getBucketNumber();
                 LocatedFileStatus file = list.get(bucketNumber);
-                boolean splittable = isSplittable(iterator.getInputFormat(), hdfsEnvironment.getFileSystem(session.getUser(), file.getPath()), file.getPath());
+                boolean splittable = isSplittable(
+                        iterator.getInputFormat(),
+                        hdfsEnvironment.getFileSystem(session.getUser(), file.getPath()),
+                        file.getPath(),
+                        isBucketExecutionEnabled(session));
 
                 iteratorList.add(createHiveSplitIterator(
                         iterator.getPartitionName(),
@@ -368,7 +377,11 @@ public class BackgroundHiveSplitLoader
 
             for (int bucketIndex = 0; bucketIndex < bucketCount; bucketIndex++) {
                 LocatedFileStatus file = list.get(bucketIndex);
-                boolean splittable = isSplittable(iterator.getInputFormat(), hdfsEnvironment.getFileSystem(session.getUser(), file.getPath()), file.getPath());
+                boolean splittable = isSplittable(
+                        iterator.getInputFormat(),
+                        hdfsEnvironment.getFileSystem(session.getUser(), file.getPath()),
+                        file.getPath(),
+                        isBucketExecutionEnabled(session));
 
                 iteratorList.add(createHiveSplitIterator(
                         iterator.getPartitionName(),

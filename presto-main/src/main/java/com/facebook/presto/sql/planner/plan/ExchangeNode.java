@@ -31,6 +31,7 @@ import static com.facebook.presto.sql.planner.SystemPartitioningHandle.FIXED_HAS
 import static com.facebook.presto.sql.planner.SystemPartitioningHandle.SINGLE_DISTRIBUTION;
 import static com.facebook.presto.sql.planner.plan.ExchangeNode.Scope.LOCAL;
 import static com.facebook.presto.sql.planner.plan.ExchangeNode.Scope.REMOTE;
+import static com.facebook.presto.sql.planner.plan.ExecutionFlowStrategy.UNKNOWN;
 import static com.facebook.presto.util.MoreLists.listOfListsCopy;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -62,6 +63,19 @@ public class ExchangeNode
     // for each source, the list of inputs corresponding to each output
     private final List<List<Symbol>> inputs;
 
+    private final ExecutionFlowStrategy executionFlowStrategy;
+
+    public ExchangeNode(
+            PlanNodeId id,
+            Type type,
+            Scope scope,
+            PartitioningScheme partitioningScheme,
+            List<PlanNode> sources,
+            List<List<Symbol>> inputs)
+    {
+        this(id, type, scope, partitioningScheme, sources, inputs, UNKNOWN);
+    }
+
     @JsonCreator
     public ExchangeNode(
             @JsonProperty("id") PlanNodeId id,
@@ -69,7 +83,8 @@ public class ExchangeNode
             @JsonProperty("scope") Scope scope,
             @JsonProperty("partitioningScheme") PartitioningScheme partitioningScheme,
             @JsonProperty("sources") List<PlanNode> sources,
-            @JsonProperty("inputs") List<List<Symbol>> inputs)
+            @JsonProperty("inputs") List<List<Symbol>> inputs,
+            @JsonProperty("executionFlowStrategy") ExecutionFlowStrategy executionFlowStrategy)
     {
         super(id);
 
@@ -78,6 +93,7 @@ public class ExchangeNode
         requireNonNull(sources, "sources is null");
         requireNonNull(partitioningScheme, "partitioningScheme is null");
         requireNonNull(inputs, "inputs is null");
+        requireNonNull(executionFlowStrategy, "executionFlowStrategy is null");
 
         checkArgument(!inputs.isEmpty(), "inputs is empty");
         checkArgument(inputs.stream().allMatch(inputSymbols -> inputSymbols.size() == partitioningScheme.getOutputLayout().size()), "Input symbols do not match output symbols");
@@ -96,14 +112,25 @@ public class ExchangeNode
         this.scope = scope;
         this.partitioningScheme = partitioningScheme;
         this.inputs = listOfListsCopy(inputs);
+        this.executionFlowStrategy = executionFlowStrategy;
     }
 
     public static ExchangeNode partitionedExchange(PlanNodeId id, Scope scope, PlanNode child, List<Symbol> partitioningColumns, Optional<Symbol> hashColumns)
     {
-        return partitionedExchange(id, scope, child, partitioningColumns, hashColumns, false);
+        return partitionedExchange(id, scope, child, partitioningColumns, hashColumns, UNKNOWN);
+    }
+
+    public static ExchangeNode partitionedExchange(PlanNodeId id, Scope scope, PlanNode child, List<Symbol> partitioningColumns, Optional<Symbol> hashColumns, ExecutionFlowStrategy executionFlowStrategy)
+    {
+        return partitionedExchange(id, scope, child, partitioningColumns, hashColumns, false, executionFlowStrategy);
     }
 
     public static ExchangeNode partitionedExchange(PlanNodeId id, Scope scope, PlanNode child, List<Symbol> partitioningColumns, Optional<Symbol> hashColumns, boolean replicateNullsAndAny)
+    {
+        return partitionedExchange(id, scope, child, partitioningColumns, hashColumns, replicateNullsAndAny, UNKNOWN);
+    }
+
+    public static ExchangeNode partitionedExchange(PlanNodeId id, Scope scope, PlanNode child, List<Symbol> partitioningColumns, Optional<Symbol> hashColumns, boolean replicateNullsAndAny, ExecutionFlowStrategy executionFlowStrategy)
     {
         return partitionedExchange(
                 id,
@@ -114,10 +141,16 @@ public class ExchangeNode
                         child.getOutputSymbols(),
                         hashColumns,
                         replicateNullsAndAny,
-                        Optional.empty()));
+                        Optional.empty()),
+                executionFlowStrategy);
     }
 
     public static ExchangeNode partitionedExchange(PlanNodeId id, Scope scope, PlanNode child, PartitioningScheme partitioningScheme)
+    {
+        return partitionedExchange(id, scope, child, partitioningScheme, UNKNOWN);
+    }
+
+    public static ExchangeNode partitionedExchange(PlanNodeId id, Scope scope, PlanNode child, PartitioningScheme partitioningScheme, ExecutionFlowStrategy executionFlowStrategy)
     {
         if (partitioningScheme.getPartitioning().getHandle().isSingleNode()) {
             return gatheringExchange(id, scope, child);
@@ -128,7 +161,8 @@ public class ExchangeNode
                 scope,
                 partitioningScheme,
                 ImmutableList.of(child),
-                ImmutableList.of(partitioningScheme.getOutputLayout()));
+                ImmutableList.of(partitioningScheme.getOutputLayout()),
+                executionFlowStrategy);
     }
 
     public static ExchangeNode replicatedExchange(PlanNodeId id, Scope scope, PlanNode child)
@@ -139,7 +173,8 @@ public class ExchangeNode
                 scope,
                 new PartitioningScheme(Partitioning.create(FIXED_BROADCAST_DISTRIBUTION, ImmutableList.of()), child.getOutputSymbols()),
                 ImmutableList.of(child),
-                ImmutableList.of(child.getOutputSymbols()));
+                ImmutableList.of(child.getOutputSymbols()),
+                UNKNOWN);
     }
 
     public static ExchangeNode gatheringExchange(PlanNodeId id, Scope scope, PlanNode child)
@@ -150,7 +185,8 @@ public class ExchangeNode
                 scope,
                 new PartitioningScheme(Partitioning.create(SINGLE_DISTRIBUTION, ImmutableList.of()), child.getOutputSymbols()),
                 ImmutableList.of(child),
-                ImmutableList.of(child.getOutputSymbols()));
+                ImmutableList.of(child.getOutputSymbols()),
+                UNKNOWN);
     }
 
     @JsonProperty
@@ -190,6 +226,12 @@ public class ExchangeNode
         return inputs;
     }
 
+    @JsonProperty
+    public ExecutionFlowStrategy getExecutionFlowStrategy()
+    {
+        return executionFlowStrategy;
+    }
+
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context)
     {
@@ -199,6 +241,6 @@ public class ExchangeNode
     @Override
     public PlanNode replaceChildren(List<PlanNode> newChildren)
     {
-        return new ExchangeNode(getId(), type, scope, partitioningScheme, newChildren, inputs);
+        return new ExchangeNode(getId(), type, scope, partitioningScheme, newChildren, inputs, executionFlowStrategy);
     }
 }

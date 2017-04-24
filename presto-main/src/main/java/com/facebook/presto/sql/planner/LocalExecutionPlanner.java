@@ -114,6 +114,7 @@ import com.facebook.presto.sql.planner.plan.DeleteNode;
 import com.facebook.presto.sql.planner.plan.DistinctLimitNode;
 import com.facebook.presto.sql.planner.plan.EnforceSingleRowNode;
 import com.facebook.presto.sql.planner.plan.ExchangeNode;
+import com.facebook.presto.sql.planner.plan.ExecutionFlowStrategy;
 import com.facebook.presto.sql.planner.plan.ExplainAnalyzeNode;
 import com.facebook.presto.sql.planner.plan.FilterNode;
 import com.facebook.presto.sql.planner.plan.GroupIdNode;
@@ -397,7 +398,8 @@ public class LocalExecutionPlanner
                                 pagePreprocessor,
                                 new PagesSerdeFactory(blockEncodingSerde, isExchangeCompressionEnabled(session))))
                         .build(),
-                context.getDriverInstanceCount());
+                context.getDriverInstanceCount(),
+                physicalOperation.getExecutionFlowStrategy());
 
         addLookupOuterDrivers(context);
 
@@ -436,7 +438,7 @@ public class LocalExecutionPlanner
                             .map(OperatorFactory::duplicate)
                             .forEach(newOperators::add);
 
-                    context.addDriverFactory(false, factory.isOutputDriver(), newOperators.build(), OptionalInt.of(1));
+                    context.addDriverFactory(false, factory.isOutputDriver(), newOperators.build(), OptionalInt.of(1), factory.getExecutionFlowStrategy());
                 }
             }
         }
@@ -475,9 +477,9 @@ public class LocalExecutionPlanner
             this.nextPipelineId = nextPipelineId;
         }
 
-        public void addDriverFactory(boolean inputDriver, boolean outputDriver, List<OperatorFactory> operatorFactories, OptionalInt driverInstances)
+        public void addDriverFactory(boolean inputDriver, boolean outputDriver, List<OperatorFactory> operatorFactories, OptionalInt driverInstances, ExecutionFlowStrategy executionFlowStrategy)
         {
-            driverFactories.add(new DriverFactory(getNextPipelineId(), inputDriver, outputDriver, operatorFactories, driverInstances));
+            driverFactories.add(new DriverFactory(getNextPipelineId(), inputDriver, outputDriver, operatorFactories, driverInstances, executionFlowStrategy));
         }
 
         private List<DriverFactory> getDriverFactories()
@@ -1090,7 +1092,7 @@ public class LocalExecutionPlanner
                             columns,
                             getTypes(rewrittenProjections, expressionTypes));
 
-                    return new PhysicalOperation(operatorFactory, outputMappings);
+                    return new PhysicalOperation(operatorFactory, outputMappings, ((TableScanNode) sourceNode).getExecutionFlowStrategy());
                 }
                 else {
                     Supplier<PageProcessor> pageProcessor = expressionCompiler.compilePageProcessor(translatedFilter, translatedProjections, Optional.of(context.getStageId() + "_" + planNodeId));
@@ -1194,7 +1196,7 @@ public class LocalExecutionPlanner
 
             List<Type> types = getSourceOperatorTypes(node, context.getTypes());
             OperatorFactory operatorFactory = new TableScanOperatorFactory(context.getNextOperatorId(), node.getId(), pageSourceProvider, types, columns);
-            return new PhysicalOperation(operatorFactory, makeLayout(node));
+            return new PhysicalOperation(operatorFactory, makeLayout(node), node.getExecutionFlowStrategy());
         }
 
         @Override
@@ -1517,7 +1519,8 @@ public class LocalExecutionPlanner
                             .addAll(buildSource.getOperatorFactories())
                             .add(nestedLoopBuildOperatorFactory)
                             .build(),
-                    buildContext.getDriverInstanceCount());
+                    buildContext.getDriverInstanceCount(),
+                    buildSource.getExecutionFlowStrategy());
 
             NestedLoopJoinPagesSupplier nestedLoopJoinPagesSupplier = nestedLoopBuildOperatorFactory.getNestedLoopJoinPagesSupplier();
             ImmutableMap.Builder<Symbol, Integer> outputMappings = ImmutableMap.builder();
@@ -1609,7 +1612,8 @@ public class LocalExecutionPlanner
                             .addAll(buildSource.getOperatorFactories())
                             .add(hashBuilderOperatorFactory)
                             .build(),
-                    buildContext.getDriverInstanceCount());
+                    buildContext.getDriverInstanceCount(),
+                    buildSource.getExecutionFlowStrategy());
 
             return hashBuilderOperatorFactory.getLookupSourceFactory();
         }
@@ -1716,7 +1720,8 @@ public class LocalExecutionPlanner
                             .addAll(buildSource.getOperatorFactories())
                             .add(setBuilderOperatorFactory)
                             .build(),
-                    buildContext.getDriverInstanceCount());
+                    buildContext.getDriverInstanceCount(),
+                    buildSource.getExecutionFlowStrategy());
 
             // Source channels are always laid out first, followed by the boolean output symbol
             Map<Symbol, Integer> outputMappings = ImmutableMap.<Symbol, Integer>builder()
@@ -1864,7 +1869,7 @@ public class LocalExecutionPlanner
                 Function<Page, Page> pagePreprocessor = enforceLayoutProcessor(expectedLayout, source.getLayout());
                 operatorFactories.add(new LocalExchangeSinkOperatorFactory(subContext.getNextOperatorId(), node.getId(), localExchange.createSinkFactory(), pagePreprocessor));
 
-                context.addDriverFactory(subContext.isInputDriver(), false, operatorFactories, subContext.getDriverInstanceCount());
+                context.addDriverFactory(subContext.isInputDriver(), false, operatorFactories, subContext.getDriverInstanceCount(), source.getExecutionFlowStrategy());
             }
 
             // the main driver is not an input... the exchange sources are the input for the plan
@@ -1874,7 +1879,7 @@ public class LocalExecutionPlanner
             verify(context.getDriverInstanceCount().getAsInt() == localExchange.getBufferCount(),
                     "driver instance count must match the number of exchange partitions");
 
-            return new PhysicalOperation(new LocalExchangeSourceOperatorFactory(context.getNextOperatorId(), node.getId(), localExchange), makeLayout(node));
+            return new PhysicalOperation(new LocalExchangeSourceOperatorFactory(context.getNextOperatorId(), node.getId(), localExchange), makeLayout(node), node.getExecutionFlowStrategy());
         }
 
         @Override
@@ -2082,7 +2087,14 @@ public class LocalExecutionPlanner
         private final Map<Symbol, Integer> layout;
         private final List<Type> types;
 
+        private final ExecutionFlowStrategy executionFlowStrategy;
+
         public PhysicalOperation(OperatorFactory operatorFactory, Map<Symbol, Integer> layout)
+        {
+            this(operatorFactory, layout, ExecutionFlowStrategy.UNKNOWN);
+        }
+
+        public PhysicalOperation(OperatorFactory operatorFactory, Map<Symbol, Integer> layout, ExecutionFlowStrategy executionFlowStrategy)
         {
             requireNonNull(operatorFactory, "operatorFactory is null");
             requireNonNull(layout, "layout is null");
@@ -2090,6 +2102,7 @@ public class LocalExecutionPlanner
             this.operatorFactories = ImmutableList.of(operatorFactory);
             this.layout = ImmutableMap.copyOf(layout);
             this.types = operatorFactory.getTypes();
+            this.executionFlowStrategy = executionFlowStrategy;
         }
 
         public PhysicalOperation(OperatorFactory operatorFactory, Map<Symbol, Integer> layout, PhysicalOperation source)
@@ -2101,6 +2114,7 @@ public class LocalExecutionPlanner
             this.operatorFactories = ImmutableList.<OperatorFactory>builder().addAll(source.getOperatorFactories()).add(operatorFactory).build();
             this.layout = ImmutableMap.copyOf(layout);
             this.types = operatorFactory.getTypes();
+            this.executionFlowStrategy = source.executionFlowStrategy;
         }
 
         public int symbolToChannel(Symbol input)
@@ -2122,6 +2136,11 @@ public class LocalExecutionPlanner
         private List<OperatorFactory> getOperatorFactories()
         {
             return operatorFactories;
+        }
+
+        public ExecutionFlowStrategy getExecutionFlowStrategy()
+        {
+            return executionFlowStrategy;
         }
     }
 }

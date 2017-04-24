@@ -31,6 +31,7 @@ import com.facebook.presto.sql.planner.plan.ApplyNode;
 import com.facebook.presto.sql.planner.plan.DistinctLimitNode;
 import com.facebook.presto.sql.planner.plan.EnforceSingleRowNode;
 import com.facebook.presto.sql.planner.plan.ExchangeNode;
+import com.facebook.presto.sql.planner.plan.ExecutionFlowStrategy;
 import com.facebook.presto.sql.planner.plan.ExplainAnalyzeNode;
 import com.facebook.presto.sql.planner.plan.IndexJoinNode;
 import com.facebook.presto.sql.planner.plan.JoinNode;
@@ -44,6 +45,7 @@ import com.facebook.presto.sql.planner.plan.RowNumberNode;
 import com.facebook.presto.sql.planner.plan.SemiJoinNode;
 import com.facebook.presto.sql.planner.plan.SortNode;
 import com.facebook.presto.sql.planner.plan.TableFinishNode;
+import com.facebook.presto.sql.planner.plan.TableScanNode;
 import com.facebook.presto.sql.planner.plan.TableWriterNode;
 import com.facebook.presto.sql.planner.plan.TopNNode;
 import com.facebook.presto.sql.planner.plan.TopNRowNumberNode;
@@ -64,6 +66,7 @@ import java.util.Set;
 
 import static com.facebook.presto.SystemSessionProperties.getTaskConcurrency;
 import static com.facebook.presto.SystemSessionProperties.getTaskWriterCount;
+import static com.facebook.presto.SystemSessionProperties.isColocatedJoinEnabled;
 import static com.facebook.presto.sql.planner.SystemPartitioningHandle.FIXED_ARBITRARY_DISTRIBUTION;
 import static com.facebook.presto.sql.planner.SystemPartitioningHandle.FIXED_HASH_DISTRIBUTION;
 import static com.facebook.presto.sql.planner.SystemPartitioningHandle.SINGLE_DISTRIBUTION;
@@ -367,6 +370,31 @@ public class AddLocalExchanges
             return planAndEnforceChildren(node, requiredProperties, preferredProperties);
         }
 
+        @Override
+        public PlanWithProperties visitTableScan(TableScanNode node, StreamPreferredProperties context)
+        {
+            ExecutionFlowStrategy strategy;
+            // COMPLETE HACK
+            if (isColocatedJoinEnabled(session)) {
+                strategy = ExecutionFlowStrategy.PER_BUCKET;
+            }
+            else {
+                strategy = ExecutionFlowStrategy.SINGLE;
+            }
+            // END OF COMPLETE HACK
+            node = new TableScanNode(
+                    node.getId(),
+                    node.getTable(),
+                    node.getOutputSymbols(),
+                    node.getAssignments(),
+                    node.getLayout(),
+                    node.getCurrentConstraint(),
+                    node.getOriginalConstraint(),
+                    strategy
+            );
+            return deriveProperties(node, ImmutableList.of());
+        }
+
         //
         // Exchanges
         //
@@ -554,12 +582,16 @@ public class AddLocalExchanges
 
             if (requiredProperties.isParallelPreferred()) {
                 // partitioned parallel streams required
+                // COMPLETE HACK
+                ExecutionFlowStrategy executionFlowStrategy = isColocatedJoinEnabled(session) ? ExecutionFlowStrategy.PER_BUCKET : ExecutionFlowStrategy.SINGLE;
+                // END COMPLETE HACK
                 ExchangeNode exchangeNode = partitionedExchange(
                         idAllocator.getNextId(),
                         LOCAL,
                         planWithProperties.getNode(),
                         requiredPartitionColumns.get(),
-                        Optional.empty());
+                        Optional.empty(),
+                        executionFlowStrategy);
                 return deriveProperties(exchangeNode, planWithProperties.getProperties());
             }
 

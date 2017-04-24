@@ -44,6 +44,8 @@ public class TableScanNode
     private final List<Symbol> outputSymbols;
     private final Map<Symbol, ColumnHandle> assignments; // symbol -> column
 
+    private final ExecutionFlowStrategy executionFlowStrategy;
+
     // Used during predicate refinement over multiple passes of predicate pushdown
     // TODO: think about how to get rid of this in new planner
     private final TupleDomain<ColumnHandle> currentConstraint;
@@ -59,6 +61,18 @@ public class TableScanNode
     // In this way, we are always guaranteed to have a readable predicate that provides some kind of upper bound on the constraints.
     private final Expression originalConstraint;
 
+    public TableScanNode(
+            PlanNodeId id,
+            TableHandle table,
+            List<Symbol> outputs,
+            Map<Symbol, ColumnHandle> assignments,
+            Optional<TableLayoutHandle> tableLayout,
+            TupleDomain<ColumnHandle> currentConstraint,
+            @Nullable Expression originalConstraint)
+    {
+        this(id, table, outputs, assignments, tableLayout, currentConstraint, originalConstraint, ExecutionFlowStrategy.UNKNOWN);
+    }
+
     @JsonCreator
     public TableScanNode(
             @JsonProperty("id") PlanNodeId id,
@@ -67,7 +81,8 @@ public class TableScanNode
             @JsonProperty("assignments") Map<Symbol, ColumnHandle> assignments,
             @JsonProperty("layout") Optional<TableLayoutHandle> tableLayout,
             @JsonProperty("currentConstraint") TupleDomain<ColumnHandle> currentConstraint,
-            @JsonProperty("originalConstraint") @Nullable Expression originalConstraint)
+            @JsonProperty("originalConstraint") @Nullable Expression originalConstraint,
+            @JsonProperty("executionFlowStrategy") ExecutionFlowStrategy executionFlowStrategy)
     {
         super(id);
         requireNonNull(table, "table is null");
@@ -76,6 +91,7 @@ public class TableScanNode
         checkArgument(assignments.keySet().containsAll(outputs), "assignments does not cover all of outputs");
         requireNonNull(tableLayout, "tableLayout is null");
         requireNonNull(currentConstraint, "currentConstraint is null");
+        requireNonNull(executionFlowStrategy, "executionFlowStrategy is null");
 
         this.table = table;
         this.outputSymbols = ImmutableList.copyOf(outputs);
@@ -83,6 +99,7 @@ public class TableScanNode
         this.originalConstraint = originalConstraint;
         this.tableLayout = tableLayout;
         this.currentConstraint = currentConstraint;
+        this.executionFlowStrategy = executionFlowStrategy;
     }
 
     @JsonProperty("table")
@@ -121,6 +138,12 @@ public class TableScanNode
     public TupleDomain<ColumnHandle> getCurrentConstraint()
     {
         return currentConstraint;
+    }
+
+    @JsonProperty
+    public ExecutionFlowStrategy getExecutionFlowStrategy()
+    {
+        return executionFlowStrategy;
     }
 
     @Override

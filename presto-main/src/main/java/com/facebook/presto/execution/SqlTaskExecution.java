@@ -25,6 +25,7 @@ import com.facebook.presto.operator.Driver;
 import com.facebook.presto.operator.DriverContext;
 import com.facebook.presto.operator.DriverFactory;
 import com.facebook.presto.operator.DriverStats;
+import com.facebook.presto.operator.OperatorFactory;
 import com.facebook.presto.operator.PipelineContext;
 import com.facebook.presto.operator.TaskContext;
 import com.facebook.presto.sql.planner.LocalExecutionPlanner;
@@ -166,6 +167,18 @@ public class SqlTaskExecution
                         fragment.getPartitioningScheme(),
                         outputBuffer);
                 driverFactories = localExecutionPlan.getDriverFactories();
+
+                StringBuilder sb = new StringBuilder();
+                sb.append("Pipelines:\n");
+                for (DriverFactory driverFactory : driverFactories) {
+                    sb.append("  Pipeline ").append(driverFactory.getPipelineId()).append(":");
+                    sb.append("  ").append(driverFactory.getExecutionFlowStrategy());
+                    sb.append('\n');
+                    for (OperatorFactory operatorFactory : driverFactory.getOperatorFactories()) {
+                        sb.append("    ").append(operatorFactory.getClass().getTypeName()).append('\n');
+                    }
+                }
+                System.out.println(sb.toString());
             }
             catch (Throwable e) {
                 // planning failed
@@ -250,6 +263,7 @@ public class SqlTaskExecution
             // tell existing drivers about the new splits; it is safe to update drivers
             // multiple times and out of order because sources contain full record of
             // the unpartitioned splits
+            // INTERESTING
             for (TaskSource source : updatedUnpartitionedSources.values()) {
                 // tell all the existing drivers this source is finished
                 for (WeakReference<Driver> driverReference : drivers) {
@@ -314,12 +328,14 @@ public class SqlTaskExecution
             return;
         }
 
+        // INTERESTING
         DriverSplitRunnerFactory partitionedDriverFactory = partitionedDriverFactories.get(source.getPlanNodeId());
         ImmutableList.Builder<DriverSplitRunner> runners = ImmutableList.builder();
         for (ScheduledSplit scheduledSplit : source.getSplits()) {
             // create a new driver for the split
             runners.add(partitionedDriverFactory.createDriverRunner(scheduledSplit, true));
         }
+        // END INTERESTING
 
         enqueueDrivers(false, runners.build());
         if (source.isNoMoreSplits()) {

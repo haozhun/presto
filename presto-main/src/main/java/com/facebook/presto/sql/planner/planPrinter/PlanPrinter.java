@@ -813,7 +813,7 @@ public class PlanPrinter
         public Void visitTableScan(TableScanNode node, Integer indent)
         {
             TableHandle table = node.getTable();
-            print(indent, "- TableScan[%s, originalConstraint = %s] => [%s]", table, node.getOriginalConstraint(), formatOutputs(node.getOutputSymbols()));
+            print(indent, "- TableScan[%s, originalConstraint = %s, flow=%s] => [%s]", table, node.getOriginalConstraint(), node.getExecutionFlowStrategy(), formatOutputs(node.getOutputSymbols()));
             printCost(indent + 2, node);
             printStats(indent + 2, node.getId());
             printTableScanInfo(node, indent);
@@ -879,18 +879,16 @@ public class PlanPrinter
 
             if (scanNode.isPresent()) {
                 operatorName += "Scan";
-                format += "table = %s, originalConstraint = %s";
-                if (filterNode.isPresent()) {
-                    format += ", ";
-                }
+                format += "table = %s, originalConstraint = %s, flow = %s";
                 TableHandle table = scanNode.get().getTable();
                 arguments.add(table);
                 arguments.add(scanNode.get().getOriginalConstraint());
+                arguments.add(scanNode.get().getExecutionFlowStrategy());
             }
 
             if (filterNode.isPresent()) {
                 operatorName += "Filter";
-                format += "filterPredicate = %s";
+                format += ", filterPredicate = %s";
                 arguments.add(filterNode.get().getPredicate());
             }
 
@@ -1097,8 +1095,9 @@ public class PlanPrinter
         public Void visitExchange(ExchangeNode node, Integer indent)
         {
             if (node.getScope() == Scope.LOCAL) {
-                print(indent, "- LocalExchange[%s%s]%s (%s) => %s",
+                print(indent, "- LocalExchange[%s, flow=%s%s]%s (%s) => %s",
                         node.getPartitioningScheme().getPartitioning().getHandle(),
+                        node.getExecutionFlowStrategy(),
                         node.getPartitioningScheme().isReplicateNullsAndAny() ? " - REPLICATE NULLS AND ANY" : "",
                         formatHash(node.getPartitioningScheme().getHashColumn()),
                         Joiner.on(", ").join(node.getPartitioningScheme().getPartitioning().getArguments()),
