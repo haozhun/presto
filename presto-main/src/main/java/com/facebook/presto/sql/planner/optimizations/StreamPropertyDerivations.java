@@ -233,16 +233,16 @@ final class StreamPropertyDerivations
                     .filter(entry -> !entry.getValue().isNull())  // TODO consider allowing nulls
                     .forEach(entry -> constants.add(entry.getKey()));
 
-            Optional<Set<Symbol>> partitionSymbols = layout.getPartitioningColumns()
+            Optional<Set<Symbol>> streamPartitionSymbols = layout.getStreamPartitioningColumns()
                     .flatMap(columns -> getNonConstantSymbols(columns, assignments, constants));
 
             // if we are partitioned on empty set, we must say multiple of unknown partitioning, because
             // the connector does not guarantee a single split in this case (since it might not understand
             // that the value is a constant).
-            if (partitionSymbols.isPresent() && partitionSymbols.get().isEmpty()) {
+            if (streamPartitionSymbols.isPresent() && streamPartitionSymbols.get().isEmpty()) {
                 return new StreamProperties(MULTIPLE, false, Optional.empty(), false);
             }
-            return new StreamProperties(MULTIPLE, false, partitionSymbols, false);
+            return new StreamProperties(MULTIPLE, false, streamPartitionSymbols, false);
         }
 
         private static Optional<Set<Symbol>> getNonConstantSymbols(Set<ColumnHandle> columnHandles, Map<ColumnHandle, Symbol> assignments, Set<ColumnHandle> globalConstants)
