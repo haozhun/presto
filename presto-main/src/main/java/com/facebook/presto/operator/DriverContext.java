@@ -27,6 +27,7 @@ import org.joda.time.DateTime;
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
 import java.util.List;
+import java.util.OptionalInt;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -82,12 +83,14 @@ public class DriverContext
 
     private final List<OperatorContext> operatorContexts = new CopyOnWriteArrayList<>();
     private final boolean partitioned;
+    private final OptionalInt driverGroup;
 
-    public DriverContext(PipelineContext pipelineContext, Executor executor, boolean partitioned)
+    public DriverContext(PipelineContext pipelineContext, Executor executor, boolean partitioned, OptionalInt driverGroup)
     {
         this.pipelineContext = requireNonNull(pipelineContext, "pipelineContext is null");
         this.executor = requireNonNull(executor, "executor is null");
         this.partitioned = partitioned;
+        this.driverGroup = requireNonNull(driverGroup, "driverGroup is null");
     }
 
     public TaskId getTaskId()
@@ -413,6 +416,11 @@ public class DriverContext
     public boolean isPartitioned()
     {
         return partitioned;
+    }
+
+    public OptionalInt getDriverGroup()
+    {
+        return driverGroup;
     }
 
     private long currentThreadUserTime()

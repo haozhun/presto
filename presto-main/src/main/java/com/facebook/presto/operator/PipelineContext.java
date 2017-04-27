@@ -30,6 +30,7 @@ import javax.annotation.concurrent.ThreadSafe;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map.Entry;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
@@ -128,7 +129,12 @@ public class PipelineContext
 
     public DriverContext addDriverContext(boolean partitioned)
     {
-        DriverContext driverContext = new DriverContext(this, executor, partitioned);
+        return addDriverContext(partitioned, OptionalInt.empty());
+    }
+
+    public DriverContext addDriverContext(boolean partitioned, OptionalInt driverGroup)
+    {
+        DriverContext driverContext = new DriverContext(this, executor, partitioned, driverGroup);
         drivers.add(driverContext);
         return driverContext;
     }

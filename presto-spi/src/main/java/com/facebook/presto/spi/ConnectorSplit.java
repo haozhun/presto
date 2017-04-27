@@ -14,6 +14,7 @@
 package com.facebook.presto.spi;
 
 import java.util.List;
+import java.util.OptionalInt;
 
 public interface ConnectorSplit
 {
@@ -22,4 +23,9 @@ public interface ConnectorSplit
     List<HostAddress> getAddresses();
 
     Object getInfo();
+
+    default OptionalInt getDriverGroupId()
+    {
+        return OptionalInt.empty();
+    }
 }

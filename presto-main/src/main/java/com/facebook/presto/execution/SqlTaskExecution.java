@@ -31,6 +31,7 @@ import com.facebook.presto.operator.TaskContext;
 import com.facebook.presto.sql.planner.LocalExecutionPlanner;
 import com.facebook.presto.sql.planner.LocalExecutionPlanner.LocalExecutionPlan;
 import com.facebook.presto.sql.planner.PlanFragment;
+import com.facebook.presto.sql.planner.plan.ExecutionFlowStrategy;
 import com.facebook.presto.sql.planner.plan.PlanNodeId;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
@@ -233,8 +234,11 @@ public class SqlTaskExecution
         // start unpartitioned drivers
         List<DriverSplitRunner> runners = new ArrayList<>();
         for (DriverSplitRunnerFactory driverFactory : unpartitionedDriverFactories) {
+            if (driverFactory.getExecutionFlowStrategy() == ExecutionFlowStrategy.PER_BUCKET) {
+                continue;
+            }
             for (int i = 0; i < driverFactory.getDriverInstances().orElse(1); i++) {
-                runners.add(driverFactory.createDriverRunner(null, false));
+                runners.add(driverFactory.createDriverRunner(null, false, OptionalInt.empty()));
             }
             driverFactory.setNoMoreSplits();
         }
@@ -279,6 +283,7 @@ public class SqlTaskExecution
                     }
                 }
             }
+            // END INTERESTING
 
             // we may have transitioned to no more splits, so check for completion
             checkTaskCompletion();
@@ -332,8 +337,10 @@ public class SqlTaskExecution
         DriverSplitRunnerFactory partitionedDriverFactory = partitionedDriverFactories.get(source.getPlanNodeId());
         ImmutableList.Builder<DriverSplitRunner> runners = ImmutableList.builder();
         for (ScheduledSplit scheduledSplit : source.getSplits()) {
+            OptionalInt driverGroupId = scheduledSplit.getSplit().getConnectorSplit().getDriverGroupId();
+
             // create a new driver for the split
-            runners.add(partitionedDriverFactory.createDriverRunner(scheduledSplit, true));
+            runners.add(partitionedDriverFactory.createDriverRunner(scheduledSplit, true, driverGroupId));
         }
         // END INTERESTING
 
@@ -518,13 +525,13 @@ public class SqlTaskExecution
             this.pipelineContext = taskContext.addPipelineContext(driverFactory.getPipelineId(), driverFactory.isInputDriver(), driverFactory.isOutputDriver());
         }
 
-        private DriverSplitRunner createDriverRunner(@Nullable ScheduledSplit partitionedSplit, boolean partitioned)
+        private DriverSplitRunner createDriverRunner(@Nullable ScheduledSplit partitionedSplit, boolean partitioned, OptionalInt driverGroupId)
         {
             pendingCreation.incrementAndGet();
             // create driver context immediately so the driver existence is recorded in the stats
             // the number of drivers is used to balance work across nodes
-            DriverContext driverContext = pipelineContext.addDriverContext(partitioned);
-            return new DriverSplitRunner(this, driverContext, partitionedSplit);
+            DriverContext driverContext = pipelineContext.addDriverContext(partitioned, driverGroupId);
+            return new DriverSplitRunner(this, driverContext, partitionedSplit, driverGroupId);
         }
 
         private Driver createDriver(DriverContext driverContext, @Nullable ScheduledSplit partitionedSplit)
@@ -569,6 +576,11 @@ public class SqlTaskExecution
             }
         }
 
+        public ExecutionFlowStrategy getExecutionFlowStrategy()
+        {
+            return driverFactory.getExecutionFlowStrategy();
+        }
+
         public OptionalInt getDriverInstances()
         {
             return driverFactory.getDriverInstances();
@@ -580,6 +592,7 @@ public class SqlTaskExecution
     {
         private final DriverSplitRunnerFactory driverSplitRunnerFactory;
         private final DriverContext driverContext;
+        private final OptionalInt driverGroupId;
 
         @GuardedBy("this")
         private boolean closed;
@@ -590,11 +603,12 @@ public class SqlTaskExecution
         @GuardedBy("this")
         private Driver driver;
 
-        private DriverSplitRunner(DriverSplitRunnerFactory driverSplitRunnerFactory, DriverContext driverContext, @Nullable ScheduledSplit partitionedSplit)
+        private DriverSplitRunner(DriverSplitRunnerFactory driverSplitRunnerFactory, DriverContext driverContext, @Nullable ScheduledSplit partitionedSplit, OptionalInt driverGroupId)
         {
             this.driverSplitRunnerFactory = requireNonNull(driverSplitRunnerFactory, "driverFactory is null");
             this.driverContext = requireNonNull(driverContext, "driverContext is null");
             this.partitionedSplit = partitionedSplit;
+            this.driverGroupId = requireNonNull(driverGroupId, "driverGroupId is null");
         }
 
         public synchronized DriverContext getDriverContext()

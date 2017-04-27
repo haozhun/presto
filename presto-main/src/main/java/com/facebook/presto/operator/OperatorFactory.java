@@ -25,8 +25,13 @@ public interface OperatorFactory
 
     Operator createOperator(DriverContext driverContext);
 
+    // TODO: remove method, remove extends Closeable
     @Override
     void close();
+
+    default void close(DriverContext driverContext) {
+        close();
+    }
 
     OperatorFactory duplicate();
 }

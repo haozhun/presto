@@ -223,4 +223,10 @@ public class HiveSplit
                 .addValue(effectivePredicate)
                 .toString();
     }
+
+    @Override
+    public OptionalInt getDriverGroupId()
+    {
+        return bucketNumber;
+    }
 }

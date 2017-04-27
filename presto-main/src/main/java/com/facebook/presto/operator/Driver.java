@@ -110,6 +110,7 @@ public class Driver
         this.sourceOperator = sourceOperator;
         this.deleteOperator = deleteOperator;
 
+        System.out.println(String.format("Constructed Operator: %s", sourceOperator));
         currentTaskSource = sourceOperator.map(operator -> new TaskSource(operator.getSourceId(), ImmutableSet.of(), false)).orElse(null);
     }
 

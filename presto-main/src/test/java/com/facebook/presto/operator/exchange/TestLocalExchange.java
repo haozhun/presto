@@ -16,7 +16,9 @@ package com.facebook.presto.operator.exchange;
 import com.facebook.presto.SequencePageBuilder;
 import com.facebook.presto.operator.InterpretedHashGenerator;
 import com.facebook.presto.operator.PageAssertions;
+import com.facebook.presto.operator.exchange.LocalExchange.LocalExchangeFactory;
 import com.facebook.presto.operator.exchange.LocalExchange.LocalExchangeSinkFactory;
+import com.facebook.presto.operator.exchange.LocalExchange.LocalExchangeSinkFactoryId;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.type.BigintType;
 import com.facebook.presto.spi.type.Type;
@@ -27,6 +29,7 @@ import org.testng.annotations.Test;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.sql.planner.SystemPartitioningHandle.FIXED_ARBITRARY_DISTRIBUTION;
@@ -48,11 +51,13 @@ public class TestLocalExchange
     @Test
     public void testGatherSingleWriter()
     {
-        LocalExchange exchange = new LocalExchange(SINGLE_DISTRIBUTION, 8, TYPES, ImmutableList.of(), Optional.empty(), new DataSize(retainedSizeOfPages(99), BYTE));
+        AtomicReference<LocalExchangeFactory> localExchangeFactory = new AtomicReference<>(new LocalExchangeFactory(SINGLE_DISTRIBUTION, 8, TYPES, ImmutableList.of(), Optional.empty(), new DataSize(retainedSizeOfPages(99), BYTE)));
+        LocalExchangeSinkFactoryId localExchangeSinkFactoryId = localExchangeFactory.get().newSinkFactoryId();
+        LocalExchange exchange = localExchangeFactory.get().createLocalExchange();
         assertEquals(exchange.getBufferCount(), 1);
         assertExchangeTotalBufferedBytes(exchange, 0);
 
-        LocalExchangeSinkFactory sinkFactory = exchange.createSinkFactory();
+        LocalExchangeSinkFactory sinkFactory = exchange.getSinkFactory(localExchangeSinkFactoryId);
 
         LocalExchangeSource source = exchange.getSource(0);
         assertSource(source, 0);
@@ -108,11 +113,13 @@ public class TestLocalExchange
     @Test
     public void testBroadcast()
     {
-        LocalExchange exchange = new LocalExchange(FIXED_BROADCAST_DISTRIBUTION, 2, TYPES, ImmutableList.of(), Optional.empty());
+        AtomicReference<LocalExchangeFactory> localExchangeFactory = new AtomicReference<>(new LocalExchangeFactory(FIXED_BROADCAST_DISTRIBUTION, 2, TYPES, ImmutableList.of(), Optional.empty()));
+        LocalExchangeSinkFactoryId localExchangeSinkFactoryId = localExchangeFactory.get().newSinkFactoryId();
+        LocalExchange exchange = localExchangeFactory.get().createLocalExchange();
         assertEquals(exchange.getBufferCount(), 2);
         assertExchangeTotalBufferedBytes(exchange, 0);
 
-        LocalExchangeSinkFactory sinkFactory = exchange.createSinkFactory();
+        LocalExchangeSinkFactory sinkFactory = exchange.getSinkFactory(localExchangeSinkFactoryId);
         LocalExchangeSink sinkA = sinkFactory.createSink();
         assertSinkCanWrite(sinkA);
         LocalExchangeSink sinkB = sinkFactory.createSink();
@@ -183,11 +190,13 @@ public class TestLocalExchange
     @Test
     public void testRandom()
     {
-        LocalExchange exchange = new LocalExchange(FIXED_ARBITRARY_DISTRIBUTION, 2, TYPES, ImmutableList.of(), Optional.empty());
+        AtomicReference<LocalExchangeFactory> localExchangeFactory = new AtomicReference<>(new LocalExchangeFactory(FIXED_ARBITRARY_DISTRIBUTION, 2, TYPES, ImmutableList.of(), Optional.empty()));
+        LocalExchangeSinkFactoryId localExchangeSinkFactoryId = localExchangeFactory.get().newSinkFactoryId();
+        LocalExchange exchange = localExchangeFactory.get().createLocalExchange();
         assertEquals(exchange.getBufferCount(), 2);
         assertExchangeTotalBufferedBytes(exchange, 0);
 
-        LocalExchangeSinkFactory sinkFactory = exchange.createSinkFactory();
+        LocalExchangeSinkFactory sinkFactory = exchange.getSinkFactory(localExchangeSinkFactoryId);
         LocalExchangeSink sink = sinkFactory.createSink();
         assertSinkCanWrite(sink);
         sinkFactory.close();
@@ -219,11 +228,13 @@ public class TestLocalExchange
     @Test
     public void testPartition()
     {
-        LocalExchange exchange = new LocalExchange(FIXED_HASH_DISTRIBUTION, 2, TYPES, ImmutableList.of(0), Optional.empty());
+        AtomicReference<LocalExchangeFactory> localExchangeFactory = new AtomicReference<>(new LocalExchangeFactory(FIXED_HASH_DISTRIBUTION, 2, TYPES, ImmutableList.of(0), Optional.empty()));
+        LocalExchangeSinkFactoryId localExchangeSinkFactoryId = localExchangeFactory.get().newSinkFactoryId();
+        LocalExchange exchange = localExchangeFactory.get().createLocalExchange();
         assertEquals(exchange.getBufferCount(), 2);
         assertExchangeTotalBufferedBytes(exchange, 0);
 
-        LocalExchangeSinkFactory sinkFactory = exchange.createSinkFactory();
+        LocalExchangeSinkFactory sinkFactory = exchange.getSinkFactory(localExchangeSinkFactoryId);
         LocalExchangeSink sink = sinkFactory.createSink();
         assertSinkCanWrite(sink);
         sinkFactory.close();
@@ -275,11 +286,13 @@ public class TestLocalExchange
     {
         ImmutableList<BigintType> types = ImmutableList.of(BIGINT);
 
-        LocalExchange exchange = new LocalExchange(FIXED_BROADCAST_DISTRIBUTION, 2, types, ImmutableList.of(), Optional.empty());
+        AtomicReference<LocalExchangeFactory> localExchangeFactory = new AtomicReference<>(new LocalExchangeFactory(FIXED_BROADCAST_DISTRIBUTION, 2, types, ImmutableList.of(), Optional.empty()));
+        LocalExchangeSinkFactoryId localExchangeSinkFactoryId = localExchangeFactory.get().newSinkFactoryId();
+        LocalExchange exchange = localExchangeFactory.get().createLocalExchange();
         assertEquals(exchange.getBufferCount(), 2);
         assertExchangeTotalBufferedBytes(exchange, 0);
 
-        LocalExchangeSinkFactory sinkFactory = exchange.createSinkFactory();
+        LocalExchangeSinkFactory sinkFactory = exchange.getSinkFactory(localExchangeSinkFactoryId);
         LocalExchangeSink sinkA = sinkFactory.createSink();
         assertSinkCanWrite(sinkA);
         LocalExchangeSink sinkB = sinkFactory.createSink();
@@ -309,11 +322,13 @@ public class TestLocalExchange
     @Test
     public void writeUnblockWhenAllReadersFinishAndPagesConsumed()
     {
-        LocalExchange exchange = new LocalExchange(FIXED_BROADCAST_DISTRIBUTION, 2, TYPES, ImmutableList.of(), Optional.empty(), new DataSize(1, BYTE));
+        AtomicReference<LocalExchangeFactory> localExchangeFactory = new AtomicReference<>(new LocalExchangeFactory(FIXED_BROADCAST_DISTRIBUTION, 2, TYPES, ImmutableList.of(), Optional.empty(), new DataSize(1, BYTE)));
+        LocalExchangeSinkFactoryId localExchangeSinkFactoryId = localExchangeFactory.get().newSinkFactoryId();
+        LocalExchange exchange = localExchangeFactory.get().createLocalExchange();
         assertEquals(exchange.getBufferCount(), 2);
         assertExchangeTotalBufferedBytes(exchange, 0);
 
-        LocalExchangeSinkFactory sinkFactory = exchange.createSinkFactory();
+        LocalExchangeSinkFactory sinkFactory = exchange.getSinkFactory(localExchangeSinkFactoryId);
         LocalExchangeSink sinkA = sinkFactory.createSink();
         assertSinkCanWrite(sinkA);
         LocalExchangeSink sinkB = sinkFactory.createSink();
