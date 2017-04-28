@@ -28,6 +28,7 @@ import com.facebook.presto.operator.DriverStats;
 import com.facebook.presto.operator.OperatorFactory;
 import com.facebook.presto.operator.PipelineContext;
 import com.facebook.presto.operator.TaskContext;
+import com.facebook.presto.operator.exchange.LocalExchangeSourceOperator.LocalExchangeSourceOperatorFactory;
 import com.facebook.presto.sql.planner.LocalExecutionPlanner;
 import com.facebook.presto.sql.planner.LocalExecutionPlanner.LocalExecutionPlan;
 import com.facebook.presto.sql.planner.PlanFragment;
@@ -63,6 +64,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import static com.facebook.presto.SystemSessionProperties.getInitialSplitsPerNode;
@@ -196,7 +198,27 @@ public class SqlTaskExecution
                     partitionedDriverFactories.put(sourceId.get(), new DriverSplitRunnerFactory(driverFactory));
                 }
                 else {
-                    unpartitionedDriverFactories.add(new DriverSplitRunnerFactory(driverFactory));
+                    OperatorFactory firstOperatorFactory = driverFactory.getOperatorFactories().get(0);
+                    if (firstOperatorFactory instanceof LocalExchangeSourceOperatorFactory && driverFactory.getExecutionFlowStrategy() == ExecutionFlowStrategy.PER_BUCKET) {
+                        LocalExchangeSourceOperatorFactory sourceOperatorFactory = (LocalExchangeSourceOperatorFactory) firstOperatorFactory;
+                        DriverSplitRunnerFactory driverSplitRunnerFactory = new DriverSplitRunnerFactory(driverFactory);
+                        sourceOperatorFactory.getLocalExchangeFactory().setNewLocalExchangeListener(new Consumer<OptionalInt>() {
+                            @Override
+                            public void accept(OptionalInt optionalInt)
+                            {
+                                System.out.println(String.format("Callback for RowGroup %s", optionalInt));
+                                List<DriverSplitRunner> runners = new ArrayList<>();
+                                for (int i = 0; i < driverFactory.getDriverInstances().orElse(1); i++) {
+                                    runners.add(driverSplitRunnerFactory.createDriverRunner(null, false, optionalInt));
+                                }
+                                //driverSplitRunnerFactory.setNoMoreSplits();
+                                enqueueDrivers(true, runners);
+                            }
+                        });
+                    }
+                    else {
+                        unpartitionedDriverFactories.add(new DriverSplitRunnerFactory(driverFactory));
+                    }
                 }
             }
             this.partitionedDriverFactories = partitionedDriverFactories.build();

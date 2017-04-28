@@ -74,6 +74,11 @@ public class LocalExchangeSourceOperator
         {
             throw new UnsupportedOperationException("Source operator factories can not be duplicated");
         }
+
+        public LocalExchangeFactory getLocalExchangeFactory()
+        {
+            return localExchangeFactory;
+        }
     }
 
     private final OperatorContext operatorContext;

@@ -331,6 +331,7 @@ public class LocalExchange
             return bufferCount;
         }
 
+        // TODO! remove usage of this method in tests
         public LocalExchange createLocalExchange()
         {
             return new LocalExchange(numSinkFactories, bufferCount, partitioning, defaultConcurrency, types, partitionChannels, partitionHashChannel, maxBufferedBytes);
@@ -338,7 +339,15 @@ public class LocalExchange
 
         public LocalExchange getLocalExchange(OptionalInt driverGroupId)
         {
-            return localExchangeMap.computeIfAbsent(driverGroupId, ignored -> createLocalExchange());
+            AtomicBoolean isNew = new AtomicBoolean();
+            LocalExchange result = localExchangeMap.computeIfAbsent(driverGroupId, ignored -> {
+                isNew.set(true);
+                return createLocalExchange();
+            });
+            if (isNew.get() && listener != null) {
+                listener.accept(driverGroupId);
+            }
+            return result;
         }
 
         public void closeSinks(LocalExchangeSinkFactoryId sinkFactoryId)
@@ -346,6 +355,14 @@ public class LocalExchange
             for (LocalExchange localExchange : localExchangeMap.values()) {
                 localExchange.getSinkFactory(sinkFactoryId).close();
             }
+        }
+
+        private Consumer<OptionalInt> listener;
+        public synchronized void setNewLocalExchangeListener(Consumer<OptionalInt> listener)
+        {
+            requireNonNull(listener, "listener is null");
+            checkState(this.listener == null, "listener already set");
+            this.listener = listener;
         }
     }
 
