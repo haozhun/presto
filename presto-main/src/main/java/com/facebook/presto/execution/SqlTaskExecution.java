@@ -94,7 +94,7 @@ public class SqlTaskExecution
     /**
      * Number of drivers that have been sent to the TaskExecutor that have not finished.
      */
-    private final AtomicInteger remainingDrivers = new AtomicInteger();
+    private final RemainingDrivers remainingDrivers = new RemainingDrivers();
 
     // guarded for update only
     @GuardedBy("this")
@@ -413,19 +413,46 @@ public class SqlTaskExecution
         }
     }
 
+    private static class RemainingDrivers
+    {
+        // TODO! next step: partitioned driver factory should be bucket aware
+        private Map<OptionalInt, Integer> perDriverGroup = new HashMap<>();
+        private int overall;
+
+        public synchronized void increment(OptionalInt driverGroup)
+        {
+            perDriverGroup.compute(driverGroup, (key, oldValue) -> oldValue == null ? 1 : oldValue + 1);
+            overall++;
+        }
+
+        public synchronized void decrement(OptionalInt driverGroup)
+        {
+            Integer oldValue = perDriverGroup.get(driverGroup);
+            checkState(oldValue != null, "Can not decrement for driver group %s. Value is zero", driverGroup);
+            perDriverGroup.put(driverGroup, oldValue - 1);
+            overall--;
+        }
+
+        public synchronized int getOverall()
+        {
+            return overall;
+        }
+    }
+
     private synchronized void enqueueDrivers(boolean forceRunSplit, List<DriverSplitRunner> runners)
     {
         // schedule driver to be executed
         List<ListenableFuture<?>> finishedFutures = taskExecutor.enqueueSplits(taskHandle, forceRunSplit, runners);
         checkState(finishedFutures.size() == runners.size(), "Expected %s futures but got %s", runners.size(), finishedFutures.size());
 
-        // record new driver
-        remainingDrivers.addAndGet(finishedFutures.size());
-
         // when driver completes, update state and fire events
         for (int i = 0; i < finishedFutures.size(); i++) {
             ListenableFuture<?> finishedFuture = finishedFutures.get(i);
             final DriverSplitRunner splitRunner = runners.get(i);
+
+            // record new driver
+            remainingDrivers.increment(splitRunner.getDriverGroupId());
+
             Futures.addCallback(finishedFuture, new FutureCallback<Object>()
             {
                 @Override
@@ -433,7 +460,7 @@ public class SqlTaskExecution
                 {
                     try (SetThreadName ignored = new SetThreadName("Task-%s", taskId)) {
                         // record driver is finished
-                        remainingDrivers.decrementAndGet();
+                        remainingDrivers.decrement(splitRunner.getDriverGroupId());
 
                         checkTaskCompletion();
 
@@ -448,7 +475,7 @@ public class SqlTaskExecution
                         taskStateMachine.failed(cause);
 
                         // record driver is finished
-                        remainingDrivers.decrementAndGet();
+                        remainingDrivers.decrement(splitRunner.getDriverGroupId());
 
                         // fire failed event with cause
                         queryMonitor.splitFailedEvent(taskId, getDriverStats(), cause);
@@ -500,7 +527,7 @@ public class SqlTaskExecution
             return;
         }
         // do we still have running tasks?
-        if (remainingDrivers.get() != 0) {
+        if (remainingDrivers.getOverall() != 0) {
             return;
         }
 
@@ -536,7 +563,7 @@ public class SqlTaskExecution
     {
         return toStringHelper(this)
                 .add("taskId", taskId)
-                .add("remainingDrivers", remainingDrivers)
+                .add("remainingDrivers", remainingDrivers.getOverall())
                 .add("unpartitionedSources", unpartitionedSources)
                 .toString();
     }
@@ -647,6 +674,11 @@ public class SqlTaskExecution
                 return null;
             }
             return driver.getDriverContext();
+        }
+
+        public OptionalInt getDriverGroupId()
+        {
+            return driverGroupId;
         }
 
         @Override
