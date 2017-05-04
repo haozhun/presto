@@ -107,6 +107,8 @@ public class LocalExchangeSourceOperator
     public void finish()
     {
         source.finish();
+
+        System.out.println(String.format("Finishing Operator: %s", this));
     }
 
     @Override

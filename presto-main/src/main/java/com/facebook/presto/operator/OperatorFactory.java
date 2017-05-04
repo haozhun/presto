@@ -15,21 +15,19 @@ package com.facebook.presto.operator;
 
 import com.facebook.presto.spi.type.Type;
 
-import java.io.Closeable;
 import java.util.List;
 
 public interface OperatorFactory
-        extends Closeable
 {
     List<Type> getTypes();
 
     Operator createOperator(DriverContext driverContext);
 
     // TODO: remove method, remove extends Closeable
-    @Override
     void close();
 
-    default void close(DriverContext driverContext) {
+    default void noMoreOperator(DriverContext driverContext)
+    {
         close();
     }
 

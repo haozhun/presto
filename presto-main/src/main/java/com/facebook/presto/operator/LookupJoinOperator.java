@@ -97,6 +97,8 @@ public class LookupJoinOperator
     public void finish()
     {
         finishing = true;
+
+        System.out.println(String.format("Finishing Operator: %s", this));
     }
 
     @Override

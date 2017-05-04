@@ -17,6 +17,7 @@ import com.facebook.presto.Session;
 import com.facebook.presto.SystemSessionProperties;
 import com.facebook.presto.operator.Driver;
 import com.facebook.presto.operator.DriverFactory;
+import com.facebook.presto.operator.DriverGroupEntityManager.LookupSourceFactoryManager;
 import com.facebook.presto.operator.HashBuilderOperator.HashBuilderOperatorFactory;
 import com.facebook.presto.operator.LookupJoinOperators;
 import com.facebook.presto.operator.OperatorFactory;
@@ -39,6 +40,8 @@ import static com.facebook.presto.benchmark.BenchmarkQueryRunner.createLocalQuer
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.DoubleType.DOUBLE;
 import static com.facebook.presto.testing.TestingSession.testSessionBuilder;
+import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.util.Objects.requireNonNull;
 
 public class HashBuildAndJoinBenchmark
         extends AbstractOperatorBenchmark
@@ -77,7 +80,28 @@ public class HashBuildAndJoinBenchmark
         }
 
         // hash build
-        HashBuilderOperatorFactory hashBuilder = new HashBuilderOperatorFactory(2, new PlanNodeId("test"), source.getTypes(), ImmutableList.of(0, 1), ImmutableMap.of(), Ints.asList(0), hashChannel, false, Optional.empty(), 1_500_000, 1, new PagesIndex.TestingFactory());
+        LookupSourceFactoryManager lookupSourceFactoryManager = new LookupSourceFactoryManager(
+                source.getTypes(),
+                ImmutableList.of(0, 1).stream()
+                        .map(source.getTypes()::get)
+                        .collect(toImmutableList()),
+                Ints.asList(0).stream()
+                        .map(source.getTypes()::get)
+                        .collect(toImmutableList()),
+                1,
+                requireNonNull(ImmutableMap.of(), "layout is null"),
+                false);
+        HashBuilderOperatorFactory hashBuilder = new HashBuilderOperatorFactory(
+                2,
+                new PlanNodeId("test"),
+                source.getTypes(),
+                lookupSourceFactoryManager,
+                ImmutableList.of(0, 1),
+                Ints.asList(0),
+                hashChannel,
+                Optional.empty(),
+                1_500_000,
+                new PagesIndex.TestingFactory());
         driversBuilder.add(hashBuilder);
         DriverFactory hashBuildDriverFactory = new DriverFactory(0, true, false, driversBuilder.build(), OptionalInt.empty());
         Driver hashBuildDriver = hashBuildDriverFactory.createDriver(taskContext.addPipelineContext(0, true, false).addDriverContext());
@@ -94,7 +118,7 @@ public class HashBuildAndJoinBenchmark
             hashChannel = Optional.of(2);
         }
 
-        OperatorFactory joinOperator = LOOKUP_JOIN_OPERATORS.innerJoin(2, new PlanNodeId("test"), hashBuilder.getLookupSourceFactory(), source.getTypes(), Ints.asList(0), hashChannel, Optional.empty());
+        OperatorFactory joinOperator = LOOKUP_JOIN_OPERATORS.innerJoin(2, new PlanNodeId("test"), lookupSourceFactoryManager, source.getTypes(), Ints.asList(0), hashChannel, Optional.empty());
         joinDriversBuilder.add(joinOperator);
         joinDriversBuilder.add(new NullOutputOperatorFactory(3, new PlanNodeId("test"), joinOperator.getTypes()));
         DriverFactory joinDriverFactory = new DriverFactory(1, true, true, joinDriversBuilder.build(), OptionalInt.empty());

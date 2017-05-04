@@ -21,6 +21,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListenableFuture;
 
 import java.util.List;
+import java.util.OptionalInt;
+import java.util.function.Function;
 
 import static com.google.common.base.Preconditions.checkState;
 import static io.airlift.concurrent.MoreFutures.tryGetFutureValue;
@@ -39,20 +41,22 @@ public class LookupOuterOperator
 
         private final int operatorId;
         private final PlanNodeId planNodeId;
-        private final ListenableFuture<OuterPositionIterator> outerPositionsFuture;
+        private final Function<OptionalInt, ListenableFuture<OuterPositionIterator>> outerPositionsFuture;
         private final List<Type> types;
         private final List<Type> probeOutputTypes;
         private final List<Type> buildOutputTypes;
-        private final ReferenceCount referenceCount;
+        private final Function<OptionalInt, ReferenceCount> referenceCount;
+        private final Runnable onNoMoreGroups;
         private State state = State.NOT_CREATED;
 
         public LookupOuterOperatorFactory(
                 int operatorId,
                 PlanNodeId planNodeId,
-                ListenableFuture<OuterPositionIterator> outerPositionsFuture,
+                Function<OptionalInt, ListenableFuture<OuterPositionIterator>> outerPositionsFuture,
                 List<Type> probeOutputTypes,
                 List<Type> buildOutputTypes,
-                ReferenceCount referenceCount)
+                Function<OptionalInt, ReferenceCount> referenceCount,
+                Runnable onNoMoreGroups)
         {
             this.operatorId = operatorId;
             this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
@@ -60,6 +64,7 @@ public class LookupOuterOperator
             this.probeOutputTypes = ImmutableList.copyOf(requireNonNull(probeOutputTypes, "probeOutputTypes is null"));
             this.buildOutputTypes = ImmutableList.copyOf(requireNonNull(buildOutputTypes, "buildOutputTypes is null"));
             this.referenceCount = requireNonNull(referenceCount, "referenceCount is null");
+            this.onNoMoreGroups = requireNonNull(onNoMoreGroups, "onNoMoreGroups is null");
 
             this.types = ImmutableList.<Type>builder()
                     .addAll(probeOutputTypes)
@@ -84,6 +89,8 @@ public class LookupOuterOperator
             checkState(state == State.NOT_CREATED, "Only one outer operator can be created");
             state = State.CREATED;
 
+            ListenableFuture<OuterPositionIterator> outerPositionsFuture = this.outerPositionsFuture.apply(driverContext.getDriverGroup());
+            ReferenceCount referenceCount = this.referenceCount.apply(driverContext.getDriverGroup());
             OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, LookupOuterOperator.class.getSimpleName());
             referenceCount.retain();
             return new LookupOuterOperator(operatorContext, outerPositionsFuture, probeOutputTypes, buildOutputTypes, referenceCount::release);
@@ -96,7 +103,7 @@ public class LookupOuterOperator
                 return;
             }
             state = State.CLOSED;
-            referenceCount.release();
+            onNoMoreGroups.run();
         }
 
         @Override

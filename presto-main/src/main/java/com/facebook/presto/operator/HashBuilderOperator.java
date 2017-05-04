@@ -13,10 +13,10 @@
  */
 package com.facebook.presto.operator;
 
+import com.facebook.presto.execution.TaskId;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.sql.gen.JoinFilterFunctionCompiler.JoinFilterFunctionFactory;
-import com.facebook.presto.sql.planner.Symbol;
 import com.facebook.presto.sql.planner.plan.PlanNodeId;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -24,12 +24,11 @@ import com.google.common.util.concurrent.ListenableFuture;
 import javax.annotation.concurrent.ThreadSafe;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
-import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.base.Verify.verify;
 import static java.util.Objects.requireNonNull;
 
 @ThreadSafe
@@ -41,7 +40,8 @@ public class HashBuilderOperator
     {
         private final int operatorId;
         private final PlanNodeId planNodeId;
-        private final PartitionedLookupSourceFactory lookupSourceFactory;
+        private final List<Type> types;
+        private final DriverGroupEntityManager.LookupSourceFactoryManager lookupSourceFactoryManager;
         private final List<Integer> outputChannels;
         private final List<Integer> hashChannels;
         private final Optional<Integer> preComputedHashChannel;
@@ -50,36 +50,27 @@ public class HashBuilderOperator
 
         private final int expectedPositions;
 
-        private int partitionIndex;
+        private final DriverGroupEntityManager<AtomicInteger> partitionIndexManager = new DriverGroupEntityManager<>(driverGroupId -> new AtomicInteger(0));
+
         private boolean closed;
 
         public HashBuilderOperatorFactory(
                 int operatorId,
                 PlanNodeId planNodeId,
                 List<Type> types,
+                DriverGroupEntityManager.LookupSourceFactoryManager lookupSourceFactory,
                 List<Integer> outputChannels,
-                Map<Symbol, Integer> layout,
                 List<Integer> hashChannels,
                 Optional<Integer> preComputedHashChannel,
-                boolean outer,
                 Optional<JoinFilterFunctionFactory> filterFunctionFactory,
                 int expectedPositions,
-                int partitionCount,
                 PagesIndex.Factory pagesIndexFactory)
         {
             this.operatorId = operatorId;
             this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
+            this.types = requireNonNull(types, "types is null");
 
-            checkArgument(Integer.bitCount(partitionCount) == 1, "partitionCount must be a power of 2");
-            lookupSourceFactory = new PartitionedLookupSourceFactory(
-                    types,
-                    outputChannels.stream()
-                            .map(types::get)
-                            .collect(toImmutableList()),
-                    hashChannels,
-                    partitionCount,
-                    requireNonNull(layout, "layout is null"),
-                    outer);
+            this.lookupSourceFactoryManager = requireNonNull(lookupSourceFactory, "lookupSourceFactoryManager");
 
             this.outputChannels = ImmutableList.copyOf(requireNonNull(outputChannels, "outputChannels is null"));
             this.hashChannels = ImmutableList.copyOf(requireNonNull(hashChannels, "hashChannels is null"));
@@ -90,15 +81,10 @@ public class HashBuilderOperator
             this.expectedPositions = expectedPositions;
         }
 
-        public LookupSourceFactory getLookupSourceFactory()
-        {
-            return lookupSourceFactory;
-        }
-
         @Override
         public List<Type> getTypes()
         {
-            return lookupSourceFactory.getTypes();
+            return types;
         }
 
         @Override
@@ -106,7 +92,15 @@ public class HashBuilderOperator
         {
             checkState(!closed, "Factory is already closed");
             OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, HashBuilderOperator.class.getSimpleName());
-            HashBuilderOperator operator = new HashBuilderOperator(
+
+            PartitionedLookupSourceFactory lookupSourceFactory = (PartitionedLookupSourceFactory) this.lookupSourceFactoryManager.forDriverGroup(driverContext.getDriverGroup());
+            int partitionIndex = partitionIndexManager.forDriverGroup(driverContext.getDriverGroup()).getAndIncrement();
+            TaskId taskId = driverContext.getTaskId();
+            if (taskId.getStageId().getId() == 1 && taskId.getId() == 0) {
+                System.out.println(String.format("Build SourceFactory %s %s", lookupSourceFactory, partitionIndex));
+            }
+            verify(partitionIndex < lookupSourceFactory.getPartitionCount());
+            return new HashBuilderOperator(
                     operatorContext,
                     lookupSourceFactory,
                     partitionIndex,
@@ -116,9 +110,6 @@ public class HashBuilderOperator
                     filterFunctionFactory,
                     expectedPositions,
                     pagesIndexFactory);
-
-            partitionIndex++;
-            return operator;
         }
 
         @Override
@@ -195,6 +186,8 @@ public class HashBuilderOperator
             return;
         }
         finishing = true;
+
+        System.out.println(String.format("Finishing Operator: %s", this));
 
         LookupSourceSupplier partition = index.createLookupSourceSupplier(operatorContext.getSession(), hashChannels, preComputedHashChannel, filterFunctionFactory, Optional.of(outputChannels));
         lookupSourceFactory.setPartitionLookupSourceSupplier(partitionIndex, partition);

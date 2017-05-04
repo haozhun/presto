@@ -19,6 +19,7 @@ import com.google.common.util.concurrent.SettableFuture;
 import javax.annotation.concurrent.GuardedBy;
 import javax.annotation.concurrent.ThreadSafe;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 
 @ThreadSafe
@@ -29,6 +30,13 @@ public class ReferenceCount
     @GuardedBy("this")
     private int count = 1;
 
+    public ReferenceCount(int initialCount)
+    {
+        checkArgument(initialCount >= 1, "initialCount must be at least 1");
+        count = initialCount;
+        System.out.println(String.format("ReferenceCount: %s %s", this, count));
+    }
+
     public ListenableFuture<Void> getFreeFuture()
     {
         return freeFuture;
@@ -38,6 +46,7 @@ public class ReferenceCount
     {
         checkState(!freeFuture.isDone(), "Reference has already been freed");
         count++;
+        System.out.println(String.format("ReferenceCount: %s %s      +1", this, count));
     }
 
     public synchronized void release()
@@ -47,5 +56,6 @@ public class ReferenceCount
         if (count == 0) {
             freeFuture.set(null);
         }
+        System.out.println(String.format("ReferenceCount: %s %s      -1", this, count));
     }
 }

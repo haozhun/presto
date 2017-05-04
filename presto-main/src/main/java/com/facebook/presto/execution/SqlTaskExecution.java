@@ -171,17 +171,19 @@ public class SqlTaskExecution
                         outputBuffer);
                 driverFactories = localExecutionPlan.getDriverFactories();
 
-                StringBuilder sb = new StringBuilder();
-                sb.append("Pipelines:\n");
-                for (DriverFactory driverFactory : driverFactories) {
-                    sb.append("  Pipeline ").append(driverFactory.getPipelineId()).append(":");
-                    sb.append("  ").append(driverFactory.getExecutionFlowStrategy());
-                    sb.append('\n');
-                    for (OperatorFactory operatorFactory : driverFactory.getOperatorFactories()) {
-                        sb.append("    ").append(operatorFactory.getClass().getTypeName()).append('\n');
+                if (taskId.getStageId().getId() == 1 && taskId.getId() == 0) {
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("Pipelines:\n");
+                    for (DriverFactory driverFactory : driverFactories) {
+                        sb.append("  Pipeline ").append(driverFactory.getPipelineId()).append(":");
+                        sb.append("  ").append(driverFactory.getExecutionFlowStrategy());
+                        sb.append('\n');
+                        for (OperatorFactory operatorFactory : driverFactory.getOperatorFactories()) {
+                            sb.append("    ").append(operatorFactory.getClass().getTypeName()).append('\n');
+                        }
                     }
+                    System.out.println(sb.toString());
                 }
-                System.out.println(sb.toString());
             }
             catch (Throwable e) {
                 // planning failed

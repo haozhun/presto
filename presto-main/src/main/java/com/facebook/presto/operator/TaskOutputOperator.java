@@ -126,6 +126,8 @@ public class TaskOutputOperator
     public void finish()
     {
         finished = true;
+
+        System.out.println(String.format("Finishing Operator: %s", this));
     }
 
     @Override

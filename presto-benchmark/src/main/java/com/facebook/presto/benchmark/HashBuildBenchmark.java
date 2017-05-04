@@ -15,6 +15,7 @@ package com.facebook.presto.benchmark;
 
 import com.facebook.presto.operator.Driver;
 import com.facebook.presto.operator.DriverFactory;
+import com.facebook.presto.operator.DriverGroupEntityManager.LookupSourceFactoryManager;
 import com.facebook.presto.operator.HashBuilderOperator.HashBuilderOperatorFactory;
 import com.facebook.presto.operator.LookupJoinOperators;
 import com.facebook.presto.operator.OperatorFactory;
@@ -35,6 +36,8 @@ import java.util.OptionalInt;
 
 import static com.facebook.presto.benchmark.BenchmarkQueryRunner.createLocalQueryRunner;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
+import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.util.Objects.requireNonNull;
 
 public class HashBuildBenchmark
         extends AbstractOperatorBenchmark
@@ -51,18 +54,27 @@ public class HashBuildBenchmark
     {
         // hash build
         OperatorFactory ordersTableScan = createTableScanOperator(0, new PlanNodeId("test"), "orders", "orderkey", "totalprice");
+        LookupSourceFactoryManager lookupSourceFactoryManager = new LookupSourceFactoryManager(
+                ordersTableScan.getTypes(),
+                ImmutableList.of(0, 1).stream()
+                        .map(ordersTableScan.getTypes()::get)
+                        .collect(toImmutableList()),
+                Ints.asList(0).stream()
+                        .map(ordersTableScan.getTypes()::get)
+                        .collect(toImmutableList()),
+                1,
+                requireNonNull(ImmutableMap.of(), "layout is null"),
+                false);
         HashBuilderOperatorFactory hashBuilder = new HashBuilderOperatorFactory(
                 1,
                 new PlanNodeId("test"),
                 ordersTableScan.getTypes(),
+                lookupSourceFactoryManager,
                 ImmutableList.of(0, 1),
-                ImmutableMap.of(),
                 Ints.asList(0),
                 Optional.empty(),
-                false,
                 Optional.empty(),
                 1_500_000,
-                1,
                 new PagesIndex.TestingFactory());
         DriverFactory hashBuildDriverFactory = new DriverFactory(0, true, true, ImmutableList.of(ordersTableScan, hashBuilder), OptionalInt.empty());
         Driver hashBuildDriver = hashBuildDriverFactory.createDriver(taskContext.addPipelineContext(0, true, true).addDriverContext());
@@ -71,8 +83,10 @@ public class HashBuildBenchmark
         // empty join so build finishes
         ImmutableList.Builder<OperatorFactory> joinDriversBuilder = ImmutableList.builder();
         joinDriversBuilder.add(new ValuesOperatorFactory(0, new PlanNodeId("values"), ImmutableList.of(BIGINT), ImmutableList.of()));
-        OperatorFactory joinOperator = LOOKUP_JOIN_OPERATORS.innerJoin(2, new PlanNodeId("test"),
-                hashBuilder.getLookupSourceFactory(),
+        OperatorFactory joinOperator = LOOKUP_JOIN_OPERATORS.innerJoin(
+                2,
+                new PlanNodeId("test"),
+                lookupSourceFactoryManager,
                 ImmutableList.of(BIGINT),
                 Ints.asList(0),
                 Optional.empty(),

@@ -24,13 +24,13 @@ import com.facebook.presto.bytecode.control.IfStatement;
 import com.facebook.presto.bytecode.expression.BytecodeExpression;
 import com.facebook.presto.bytecode.instruction.JumpInstruction;
 import com.facebook.presto.bytecode.instruction.LabelNode;
+import com.facebook.presto.operator.DriverGroupEntityManager.LookupSourceFactoryManager;
 import com.facebook.presto.operator.JoinProbe;
 import com.facebook.presto.operator.JoinProbeFactory;
 import com.facebook.presto.operator.LookupJoinOperator;
 import com.facebook.presto.operator.LookupJoinOperatorFactory;
 import com.facebook.presto.operator.LookupJoinOperators.JoinType;
 import com.facebook.presto.operator.LookupSource;
-import com.facebook.presto.operator.LookupSourceFactory;
 import com.facebook.presto.operator.OperatorFactory;
 import com.facebook.presto.operator.SimpleJoinProbe;
 import com.facebook.presto.spi.Page;
@@ -96,7 +96,7 @@ public class JoinProbeCompiler
 
     public OperatorFactory compileJoinOperatorFactory(int operatorId,
             PlanNodeId planNodeId,
-            LookupSourceFactory lookupSourceFactory,
+            LookupSourceFactoryManager lookupSourceFactory,
             List<? extends Type> probeTypes,
             List<Integer> probeJoinChannel,
             Optional<Integer> probeHashChannel,
@@ -167,7 +167,10 @@ public class JoinProbeCompiler
                 classLoader,
                 OperatorFactory.class,
                 LookupJoinOperatorFactory.class,
-                LookupJoinOperator.class);
+                LookupJoinOperator.class,
+                LookupJoinOperatorFactory.FreezeOnReadCounter.class,
+                LookupJoinOperatorFactory.PerDriverGroupData.class,
+                LookupJoinOperatorFactory.PerDriverGroupDataManager.class);
 
         return new HashJoinOperatorFactoryFactory(joinProbeFactory, operatorFactoryClass);
     }
@@ -568,7 +571,8 @@ public class JoinProbeCompiler
             this.joinProbeFactory = joinProbeFactory;
 
             try {
-                constructor = operatorFactoryClass.getConstructor(int.class, PlanNodeId.class, LookupSourceFactory.class, List.class, List.class, JoinType.class, JoinProbeFactory.class);
+                // constructor = operatorFactoryClass.getConstructor(int.class, PlanNodeId.class, LookupSourceFactory.class, List.class, List.class, JoinType.class, JoinProbeFactory.class);
+                constructor = operatorFactoryClass.getConstructor(int.class, PlanNodeId.class, LookupSourceFactoryManager.class, List.class, List.class, JoinType.class, JoinProbeFactory.class);
             }
             catch (NoSuchMethodException e) {
                 throw Throwables.propagate(e);
@@ -578,13 +582,13 @@ public class JoinProbeCompiler
         public OperatorFactory createHashJoinOperatorFactory(
                 int operatorId,
                 PlanNodeId planNodeId,
-                LookupSourceFactory lookupSourceFactory,
+                LookupSourceFactoryManager lookupSourceFactoryManager,
                 List<? extends Type> probeTypes,
                 List<? extends Type> probeOutputTypes,
                 JoinType joinType)
         {
             try {
-                return constructor.newInstance(operatorId, planNodeId, lookupSourceFactory, probeTypes, probeOutputTypes, joinType, joinProbeFactory);
+                return constructor.newInstance(operatorId, planNodeId, lookupSourceFactoryManager, probeOutputTypes, lookupSourceFactoryManager.getBuildOutputTypes(), joinType, joinProbeFactory);
             }
             catch (Exception e) {
                 throw Throwables.propagate(e);

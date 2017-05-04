@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.operator;
 
+import com.facebook.presto.operator.DriverGroupEntityManager.LookupSourceFactoryManager;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.sql.gen.JoinProbeCompiler;
 import com.facebook.presto.sql.planner.plan.PlanNodeId;
@@ -44,22 +45,22 @@ public class LookupJoinOperators
         this.joinProbeCompiler = requireNonNull(joinProbeCompiler, "joinProbeCompiler is null");
     }
 
-    public OperatorFactory innerJoin(int operatorId, PlanNodeId planNodeId, LookupSourceFactory lookupSourceFactory, List<? extends Type> probeTypes, List<Integer> probeJoinChannel, Optional<Integer> probeHashChannel, Optional<List<Integer>> probeOutputChannels)
+    public OperatorFactory innerJoin(int operatorId, PlanNodeId planNodeId, LookupSourceFactoryManager lookupSourceFactory, List<? extends Type> probeTypes, List<Integer> probeJoinChannel, Optional<Integer> probeHashChannel, Optional<List<Integer>> probeOutputChannels)
     {
         return joinProbeCompiler.compileJoinOperatorFactory(operatorId, planNodeId, lookupSourceFactory, probeTypes, probeJoinChannel, probeHashChannel, probeOutputChannels.orElse(rangeList(probeTypes.size())), JoinType.INNER);
     }
 
-    public OperatorFactory probeOuterJoin(int operatorId, PlanNodeId planNodeId, LookupSourceFactory lookupSourceFactory, List<? extends Type> probeTypes, List<Integer> probeJoinChannel, Optional<Integer> probeHashChannel, Optional<List<Integer>> probeOutputChannels)
+    public OperatorFactory probeOuterJoin(int operatorId, PlanNodeId planNodeId, LookupSourceFactoryManager lookupSourceFactory, List<? extends Type> probeTypes, List<Integer> probeJoinChannel, Optional<Integer> probeHashChannel, Optional<List<Integer>> probeOutputChannels)
     {
         return joinProbeCompiler.compileJoinOperatorFactory(operatorId, planNodeId, lookupSourceFactory, probeTypes, probeJoinChannel, probeHashChannel, probeOutputChannels.orElse(rangeList(probeTypes.size())), JoinType.PROBE_OUTER);
     }
 
-    public OperatorFactory lookupOuterJoin(int operatorId, PlanNodeId planNodeId, LookupSourceFactory lookupSourceFactory, List<? extends Type> probeTypes, List<Integer> probeJoinChannel, Optional<Integer> probeHashChannel, Optional<List<Integer>> probeOutputChannels)
+    public OperatorFactory lookupOuterJoin(int operatorId, PlanNodeId planNodeId, LookupSourceFactoryManager lookupSourceFactory, List<? extends Type> probeTypes, List<Integer> probeJoinChannel, Optional<Integer> probeHashChannel, Optional<List<Integer>> probeOutputChannels)
     {
         return joinProbeCompiler.compileJoinOperatorFactory(operatorId, planNodeId, lookupSourceFactory, probeTypes, probeJoinChannel, probeHashChannel, probeOutputChannels.orElse(rangeList(probeTypes.size())), JoinType.LOOKUP_OUTER);
     }
 
-    public OperatorFactory fullOuterJoin(int operatorId, PlanNodeId planNodeId, LookupSourceFactory lookupSourceFactory, List<? extends Type> probeTypes, List<Integer> probeJoinChannel, Optional<Integer> probeHashChannel, Optional<List<Integer>> probeOutputChannels)
+    public OperatorFactory fullOuterJoin(int operatorId, PlanNodeId planNodeId, LookupSourceFactoryManager lookupSourceFactory, List<? extends Type> probeTypes, List<Integer> probeJoinChannel, Optional<Integer> probeHashChannel, Optional<List<Integer>> probeOutputChannels)
     {
         return joinProbeCompiler.compileJoinOperatorFactory(operatorId, planNodeId, lookupSourceFactory, probeTypes, probeJoinChannel, probeHashChannel, probeOutputChannels.orElse(rangeList(probeTypes.size())), JoinType.FULL_OUTER);
     }

@@ -162,6 +162,7 @@ public class ScanFilterAndProjectOperator
     @Override
     public void finish()
     {
+        System.out.println(String.format("Finishing Operator: %s", this));
         blocked.set(null);
         if (pageSource != null) {
             try {

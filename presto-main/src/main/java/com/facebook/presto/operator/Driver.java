@@ -15,6 +15,7 @@ package com.facebook.presto.operator;
 
 import com.facebook.presto.ScheduledSplit;
 import com.facebook.presto.TaskSource;
+import com.facebook.presto.execution.TaskId;
 import com.facebook.presto.metadata.Split;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.PrestoException;
@@ -110,7 +111,10 @@ public class Driver
         this.sourceOperator = sourceOperator;
         this.deleteOperator = deleteOperator;
 
-        System.out.println(String.format("Constructed Operator: %s", sourceOperator));
+        TaskId taskId = driverContext.getTaskId();
+        if (taskId.getStageId().getId() == 1 && taskId.getId() == 0) {
+            System.out.println(String.format("Constructed Operator: %s", sourceOperator));
+        }
         currentTaskSource = sourceOperator.map(operator -> new TaskSource(operator.getSourceId(), ImmutableSet.of(), false)).orElse(null);
     }
 

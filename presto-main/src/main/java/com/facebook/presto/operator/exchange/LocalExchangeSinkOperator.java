@@ -122,6 +122,8 @@ public class LocalExchangeSinkOperator
     public void finish()
     {
         sink.finish();
+
+        System.out.println(String.format("Finishing Operator: %s", this));
     }
 
     @Override

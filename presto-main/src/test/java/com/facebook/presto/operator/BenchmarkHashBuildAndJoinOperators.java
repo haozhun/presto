@@ -14,6 +14,7 @@
 package com.facebook.presto.operator;
 
 import com.facebook.presto.RowPagesBuilder;
+import com.facebook.presto.operator.DriverGroupEntityManager.LookupSourceFactoryManager;
 import com.facebook.presto.operator.HashBuilderOperator.HashBuilderOperatorFactory;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.type.Type;
@@ -42,6 +43,7 @@ import org.openjdk.jmh.runner.options.VerboseMode;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Random;
 import java.util.concurrent.ExecutorService;
 
@@ -49,9 +51,11 @@ import static com.facebook.presto.RowPagesBuilder.rowPagesBuilder;
 import static com.facebook.presto.SessionTestUtils.TEST_SESSION;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.VarcharType.VARCHAR;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 import static io.airlift.units.DataSize.Unit.GIGABYTE;
 import static java.lang.String.format;
+import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.Executors.newCachedThreadPool;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -173,7 +177,7 @@ public class BenchmarkHashBuildAndJoinOperators
         protected List<Page> probePages;
         protected List<Integer> outputChannels;
 
-        protected LookupSourceFactory lookupSourceFactory;
+        protected LookupSourceFactoryManager lookupSourceFactory;
 
         @Override
         @Setup
@@ -199,7 +203,7 @@ public class BenchmarkHashBuildAndJoinOperators
             initializeProbePages();
         }
 
-        public LookupSourceFactory getLookupSourceFactory()
+        public LookupSourceFactoryManager getLookupSourceFactory()
         {
             return lookupSourceFactory;
         }
@@ -263,27 +267,36 @@ public class BenchmarkHashBuildAndJoinOperators
     }
 
     @Benchmark
-    public LookupSourceFactory benchmarkBuildHash(BuildContext buildContext)
+    public LookupSourceFactoryManager benchmarkBuildHash(BuildContext buildContext)
     {
         return benchmarkBuildHash(buildContext, ImmutableList.of(0, 1, 2));
     }
 
-    private LookupSourceFactory benchmarkBuildHash(BuildContext buildContext, List<Integer> outputChannels)
+    private LookupSourceFactoryManager benchmarkBuildHash(BuildContext buildContext, List<Integer> outputChannels)
     {
         DriverContext driverContext = buildContext.createTaskContext().addPipelineContext(0, true, true).addDriverContext();
 
+        LookupSourceFactoryManager lookupSourceFactoryManager = new LookupSourceFactoryManager(
+                buildContext.getTypes(),
+                outputChannels.stream()
+                        .map(buildContext.getTypes()::get)
+                        .collect(toImmutableList()),
+                buildContext.getHashChannels().stream()
+                        .map(buildContext.getTypes()::get)
+                        .collect(toImmutableList()),
+                1,
+                requireNonNull(ImmutableMap.of(), "layout is null"),
+                false);
         HashBuilderOperatorFactory hashBuilderOperatorFactory = new HashBuilderOperatorFactory(
                 HASH_BUILD_OPERATOR_ID,
                 TEST_PLAN_NODE_ID,
                 buildContext.getTypes(),
+                lookupSourceFactoryManager,
                 outputChannels,
-                ImmutableMap.of(),
                 buildContext.getHashChannels(),
                 buildContext.getHashChannel(),
-                false,
                 Optional.empty(),
                 10_000,
-                1,
                 new PagesIndex.TestingFactory());
 
         Operator operator = hashBuilderOperatorFactory.createOperator(driverContext);
@@ -292,22 +305,21 @@ public class BenchmarkHashBuildAndJoinOperators
         }
         operator.finish();
 
-        if (!hashBuilderOperatorFactory.getLookupSourceFactory().createLookupSource().isDone()) {
+        LookupSourceFactory lookupSourceFactory = lookupSourceFactoryManager.forDriverGroup(OptionalInt.empty());
+        if (!lookupSourceFactory.createLookupSource().isDone()) {
             throw new AssertionError("Expected lookup source to be done");
         }
 
-        return hashBuilderOperatorFactory.getLookupSourceFactory();
+        return lookupSourceFactoryManager;
     }
 
     @Benchmark
     public List<Page> benchmarkJoinHash(JoinContext joinContext)
     {
-        LookupSourceFactory lookupSourceFactory = joinContext.getLookupSourceFactory();
-
         OperatorFactory joinOperatorFactory = LOOKUP_JOIN_OPERATORS.innerJoin(
                 HASH_JOIN_OPERATOR_ID,
                 TEST_PLAN_NODE_ID,
-                lookupSourceFactory,
+                joinContext.getLookupSourceFactory(),
                 joinContext.getTypes(),
                 joinContext.getHashChannels(),
                 joinContext.getHashChannel(),

@@ -29,6 +29,8 @@ import com.facebook.presto.operator.AssignUniqueIdOperator;
 import com.facebook.presto.operator.CursorProcessor;
 import com.facebook.presto.operator.DeleteOperator.DeleteOperatorFactory;
 import com.facebook.presto.operator.DriverFactory;
+import com.facebook.presto.operator.DriverGroupEntityManager;
+import com.facebook.presto.operator.DriverGroupEntityManager.LookupSourceFactoryManager;
 import com.facebook.presto.operator.EnforceSingleRowOperator;
 import com.facebook.presto.operator.ExchangeClientSupplier;
 import com.facebook.presto.operator.ExchangeOperator.ExchangeOperatorFactory;
@@ -42,7 +44,6 @@ import com.facebook.presto.operator.JoinOperatorFactory;
 import com.facebook.presto.operator.LimitOperator.LimitOperatorFactory;
 import com.facebook.presto.operator.LocalPlannerAware;
 import com.facebook.presto.operator.LookupJoinOperators;
-import com.facebook.presto.operator.LookupSourceFactory;
 import com.facebook.presto.operator.MarkDistinctOperator.MarkDistinctOperatorFactory;
 import com.facebook.presto.operator.MetadataDeleteOperator.MetadataDeleteOperatorFactory;
 import com.facebook.presto.operator.NestedLoopJoinPagesSupplier;
@@ -51,6 +52,7 @@ import com.facebook.presto.operator.OrderByOperator.OrderByOperatorFactory;
 import com.facebook.presto.operator.OutputFactory;
 import com.facebook.presto.operator.PagesIndex;
 import com.facebook.presto.operator.PartitionFunction;
+import com.facebook.presto.operator.PartitionedLookupSourceFactory;
 import com.facebook.presto.operator.PartitionedOutputOperator.PartitionedOutputFactory;
 import com.facebook.presto.operator.RowNumberOperator;
 import com.facebook.presto.operator.ScanFilterAndProjectOperator;
@@ -1453,6 +1455,13 @@ public class LocalExecutionPlanner
                     pagesIndexFactory,
                     joinCompiler);
 
+            LookupSourceFactoryManager lookupSourceFactoryManager = new LookupSourceFactoryManager(
+                    new DriverGroupEntityManager<>(driverGroupId -> {
+                        checkArgument(!driverGroupId.isPresent(), "Index join cannot be executed in bucket-by-bucket manner");
+                        return indexLookupSourceFactory;
+                    }),
+                    indexLookupSourceFactory.getOutputTypes());
+
             ImmutableMap.Builder<Symbol, Integer> outputMappings = ImmutableMap.builder();
             outputMappings.putAll(probeSource.getLayout());
 
@@ -1467,10 +1476,10 @@ public class LocalExecutionPlanner
             OperatorFactory lookupJoinOperatorFactory;
             switch (node.getType()) {
                 case INNER:
-                    lookupJoinOperatorFactory = lookupJoinOperators.innerJoin(context.getNextOperatorId(), node.getId(), indexLookupSourceFactory, probeSource.getTypes(), probeChannels, probeHashChannel, Optional.empty());
+                    lookupJoinOperatorFactory = lookupJoinOperators.innerJoin(context.getNextOperatorId(), node.getId(), lookupSourceFactoryManager, probeSource.getTypes(), probeChannels, probeHashChannel, Optional.empty());
                     break;
                 case SOURCE_OUTER:
-                    lookupJoinOperatorFactory = lookupJoinOperators.probeOuterJoin(context.getNextOperatorId(), node.getId(), indexLookupSourceFactory, probeSource.getTypes(), probeChannels, probeHashChannel, Optional.empty());
+                    lookupJoinOperatorFactory = lookupJoinOperators.probeOuterJoin(context.getNextOperatorId(), node.getId(), lookupSourceFactoryManager, probeSource.getTypes(), probeChannels, probeHashChannel, Optional.empty());
                     break;
                 default:
                     throw new AssertionError("Unknown type: " + node.getType());
@@ -1551,7 +1560,8 @@ public class LocalExecutionPlanner
             PhysicalOperation probeSource = probeNode.accept(this, context);
 
             // Plan build
-            LookupSourceFactory lookupSourceFactory = createLookupSourceFactory(node, buildNode, buildSymbols, buildHashSymbol, probeSource.getLayout(), context);
+            LookupSourceFactoryManager lookupSourceFactory =
+                    createLookupSourceFactory(node, buildNode, buildSymbols, buildHashSymbol, probeSource.getLayout(), context);
 
             OperatorFactory operator = createLookupJoin(node, probeSource, probeSymbols, probeHashSymbol, lookupSourceFactory, context);
 
@@ -1565,7 +1575,7 @@ public class LocalExecutionPlanner
             return new PhysicalOperation(operator, outputMappings.build(), probeSource);
         }
 
-        private LookupSourceFactory createLookupSourceFactory(
+        private LookupSourceFactoryManager createLookupSourceFactory(
                 JoinNode node,
                 PlanNode buildNode,
                 List<Symbol> buildSymbols,
@@ -1591,18 +1601,30 @@ public class LocalExecutionPlanner
                             context.getTypes(),
                             context.getSession()));
 
+            ImmutableList<Type> buildOutputTypes = buildOutputChannels.stream()
+                    .map(buildSource.getTypes()::get)
+                    .collect(toImmutableList());
+            LookupSourceFactoryManager lookupSourceFactoryManager = new LookupSourceFactoryManager(
+                    new DriverGroupEntityManager<>(ignored -> new PartitionedLookupSourceFactory(
+                            buildSource.getTypes(),
+                            buildOutputTypes,
+                            buildChannels.stream()
+                                    .map(buildSource.getTypes()::get)
+                                    .collect(toImmutableList()),
+                            buildContext.getDriverInstanceCount().orElse(1),
+                            buildSource.getLayout(),
+                            node.getType() == RIGHT || node.getType() == FULL)),
+                    buildOutputTypes);
             HashBuilderOperatorFactory hashBuilderOperatorFactory = new HashBuilderOperatorFactory(
                     buildContext.getNextOperatorId(),
                     node.getId(),
                     buildSource.getTypes(),
+                    lookupSourceFactoryManager,
                     buildOutputChannels,
-                    buildSource.getLayout(),
                     buildChannels,
                     buildHashChannel,
-                    node.getType() == RIGHT || node.getType() == FULL,
                     filterFunctionFactory,
                     10_000,
-                    buildContext.getDriverInstanceCount().orElse(1),
                     pagesIndexFactory);
 
             context.addDriverFactory(
@@ -1615,7 +1637,7 @@ public class LocalExecutionPlanner
                     buildContext.getDriverInstanceCount(),
                     buildSource.getExecutionFlowStrategy());
 
-            return hashBuilderOperatorFactory.getLookupSourceFactory();
+            return lookupSourceFactoryManager;
         }
 
         private JoinFilterFunctionFactory compileJoinFilterFunction(
@@ -1654,7 +1676,7 @@ public class LocalExecutionPlanner
                 PhysicalOperation probeSource,
                 List<Symbol> probeSymbols,
                 Optional<Symbol> probeHashSymbol,
-                LookupSourceFactory lookupSourceFactory,
+                LookupSourceFactoryManager lookupSourceFactory,
                 LocalExecutionPlanContext context)
         {
             List<Type> probeTypes = probeSource.getTypes();

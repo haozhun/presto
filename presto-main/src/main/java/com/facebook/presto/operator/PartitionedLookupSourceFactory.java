@@ -30,8 +30,8 @@ import java.util.function.Supplier;
 
 import static com.facebook.presto.operator.OuterLookupSource.createOuterLookupSourceSupplier;
 import static com.facebook.presto.operator.PartitionedLookupSource.createPartitionedLookupSourceSupplier;
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
-import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.util.concurrent.Futures.nonCancellationPropagating;
 import static java.util.Objects.requireNonNull;
 
@@ -55,17 +55,16 @@ public final class PartitionedLookupSourceFactory
     @GuardedBy("this")
     private final List<SettableFuture<LookupSource>> lookupSourceFutures = new ArrayList<>();
 
-    public PartitionedLookupSourceFactory(List<Type> types, List<Type> outputTypes, List<Integer> hashChannels, int partitionCount, Map<Symbol, Integer> layout, boolean outer)
+    public PartitionedLookupSourceFactory(List<Type> types, List<Type> outputTypes, List<Type> hashChannelTypes, int partitionCount, Map<Symbol, Integer> layout, boolean outer)
     {
+        checkArgument(Integer.bitCount(partitionCount) == 1, "partitionCount must be a power of 2");
+
         this.types = ImmutableList.copyOf(requireNonNull(types, "types is null"));
         this.outputTypes = ImmutableList.copyOf(requireNonNull(outputTypes, "outputTypes is null"));
+        this.hashChannelTypes = ImmutableList.copyOf(hashChannelTypes);
         this.layout = ImmutableMap.copyOf(layout);
         this.partitions = (Supplier<LookupSource>[]) new Supplier<?>[partitionCount];
         this.outer = outer;
-
-        hashChannelTypes = hashChannels.stream()
-                .map(types::get)
-                .collect(toImmutableList());
     }
 
     @Override
@@ -158,5 +157,10 @@ public final class PartitionedLookupSourceFactory
     public ListenableFuture<?> isDestroyed()
     {
         return nonCancellationPropagating(destroyed);
+    }
+
+    public int getPartitionCount()
+    {
+        return partitions.length;
     }
 }
