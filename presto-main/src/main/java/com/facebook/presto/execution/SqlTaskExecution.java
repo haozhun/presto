@@ -337,7 +337,13 @@ public class SqlTaskExecution
         DriverSplitRunnerFactory partitionedDriverFactory = partitionedDriverFactories.get(source.getPlanNodeId());
         ImmutableList.Builder<DriverSplitRunner> runners = ImmutableList.builder();
         for (ScheduledSplit scheduledSplit : source.getSplits()) {
-            OptionalInt driverGroupId = scheduledSplit.getSplit().getConnectorSplit().getDriverGroupId();
+            OptionalInt driverGroupId;
+            if (partitionedDriverFactory.getExecutionFlowStrategy() == ExecutionFlowStrategy.PER_BUCKET) {
+                driverGroupId = scheduledSplit.getSplit().getConnectorSplit().getDriverGroupId();
+            }
+            else {
+                driverGroupId = OptionalInt.empty();
+            }
 
             // create a new driver for the split
             runners.add(partitionedDriverFactory.createDriverRunner(scheduledSplit, true, driverGroupId));
