@@ -176,7 +176,17 @@ public class HiveSplitManager
                 maxInitialSplits,
                 recursiveDfsWalkerEnabled);
 
-        HiveSplitSource splitSource = new HiveSplitSource(maxOutstandingSplits, hiveSplitLoader, executor);
+        HiveSplitSource splitSource;
+        switch (splitSchedulingStrategy) {
+            case ALL_AT_ONCE:
+                splitSource = HiveSplitSource.allAtOnce(maxOutstandingSplits, hiveSplitLoader, executor);
+                break;
+            case PER_BUCKET:
+                splitSource = HiveSplitSource.bucketed(maxOutstandingSplits, hiveSplitLoader, executor);
+                break;
+            default:
+                throw new UnsupportedOperationException();
+        }
         hiveSplitLoader.start(splitSource);
 
         return splitSource;
