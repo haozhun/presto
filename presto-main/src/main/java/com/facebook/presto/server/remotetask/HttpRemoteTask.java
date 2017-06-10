@@ -508,7 +508,7 @@ public final class HttpRemoteTask
 
     private synchronized List<TaskSource> getSources()
     {
-        return Stream.concat(planFragment.getPartitionedSourceNodes().stream(), planFragment.getRemoteSourceNodes().stream())
+        return Stream.concat(planFragment.getPartitionedSourceNodes().values().stream(), planFragment.getRemoteSourceNodes().stream())
                 .filter(Objects::nonNull)
                 .map(PlanNode::getId)
                 .map(this::getSource)

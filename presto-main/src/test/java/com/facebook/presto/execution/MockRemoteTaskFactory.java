@@ -302,7 +302,7 @@ public class MockRemoteTaskFactory
         {
             noMoreSplits.add(sourceId);
 
-            boolean allSourcesComplete = Stream.concat(fragment.getPartitionedSourceNodes().stream(), fragment.getRemoteSourceNodes().stream())
+            boolean allSourcesComplete = Stream.concat(fragment.getPartitionedSourceNodes().values().stream(), fragment.getRemoteSourceNodes().stream())
                     .filter(Objects::nonNull)
                     .map(PlanNode::getId)
                     .allMatch(noMoreSplits::contains);

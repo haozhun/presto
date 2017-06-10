@@ -22,6 +22,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 import javax.annotation.concurrent.Immutable;
@@ -46,7 +47,7 @@ public class PlanFragment
     private final List<PlanNodeId> partitionedSources;
     private final Set<PlanNodeId> partitionedSourcesSet;
     private final List<Type> types;
-    private final Set<PlanNode> partitionedSourceNodes;
+    private final Map<PlanNodeId, PlanNode> partitionedSourceNodes;
     private final List<RemoteSourceNode> remoteSourceNodes;
     private final PartitioningScheme partitioningScheme;
 
@@ -129,7 +130,7 @@ public class PlanFragment
         return types;
     }
 
-    public Set<PlanNode> getPartitionedSourceNodes()
+    public Map<PlanNodeId, PlanNode> getPartitionedSourceNodes()
     {
         return partitionedSourceNodes;
     }
@@ -144,22 +145,22 @@ public class PlanFragment
         return remoteSourceNodes;
     }
 
-    private static Set<PlanNode> findSources(PlanNode node, Iterable<PlanNodeId> nodeIds)
+    private static Map<PlanNodeId, PlanNode> findSources(PlanNode node, Iterable<PlanNodeId> nodeIds)
     {
-        ImmutableSet.Builder<PlanNode> nodes = ImmutableSet.builder();
+        ImmutableMap.Builder<PlanNodeId, PlanNode> nodes = ImmutableMap.builder();
         findSources(node, ImmutableSet.copyOf(nodeIds), nodes);
         return nodes.build();
     }
 
-    private static void findSources(PlanNode node, Set<PlanNodeId> nodeIds, ImmutableSet.Builder<PlanNode> nodes)
+    private static void findSources(PlanNode node, Set<PlanNodeId> nodeIds, ImmutableMap.Builder<PlanNodeId, PlanNode> nodes)
     {
         if (nodeIds.contains(node.getId())) {
-            nodes.add(node);
+            nodes.put(node.getId(), node);
         }
 
-        node.getSources().stream()
-                .flatMap(source -> findSources(source, nodeIds).stream())
-                .forEach(nodes::add);
+        for (PlanNode source : node.getSources()) {
+            nodes.putAll(findSources(source, nodeIds));
+        }
     }
 
     private static void findRemoteSourceNodes(PlanNode node, Builder<RemoteSourceNode> builder)

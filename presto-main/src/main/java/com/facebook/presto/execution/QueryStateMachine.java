@@ -356,7 +356,7 @@ public class QueryStateMachine
             }
 
             PlanFragment plan = stageInfo.getPlan();
-            if (plan != null && plan.getPartitionedSourceNodes().stream().anyMatch(TableScanNode.class::isInstance)) {
+            if (plan != null && plan.getPartitionedSourceNodes().values().stream().anyMatch(TableScanNode.class::isInstance)) {
                 rawInputDataSize += stageStats.getRawInputDataSize().toBytes();
                 rawInputPositions += stageStats.getRawInputPositions();
 
