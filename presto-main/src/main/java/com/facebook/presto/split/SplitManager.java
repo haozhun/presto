@@ -20,6 +20,7 @@ import com.facebook.presto.metadata.TableLayoutHandle;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.ConnectorSplitSource;
 import com.facebook.presto.spi.connector.ConnectorSplitManager;
+import com.facebook.presto.spi.connector.ConnectorSplitManager.SplitSchedulingStrategy;
 import com.facebook.presto.sql.planner.plan.ExecutionFlowStrategy;
 
 import javax.inject.Inject;
@@ -61,7 +62,11 @@ public class SplitManager
 
         ConnectorSession connectorSession = session.toConnectorSession(connectorId);
 
-        ConnectorSplitSource source = splitManager.getSplits(layout.getTransactionHandle(), connectorSession, layout.getConnectorHandle());
+        ConnectorSplitSource source = splitManager.getSplits(
+                layout.getTransactionHandle(),
+                connectorSession,
+                layout.getConnectorHandle(),
+                executionFlowStrategy == ExecutionFlowStrategy.PER_BUCKET ? SplitSchedulingStrategy.PER_BUCKET : SplitSchedulingStrategy.ALL_AT_ONCE);
 
         SplitSource splitSource = new ConnectorAwareSplitSource(connectorId, layout.getTransactionHandle(), source);
         if (minScheduleSplitBatchSize > 1) {

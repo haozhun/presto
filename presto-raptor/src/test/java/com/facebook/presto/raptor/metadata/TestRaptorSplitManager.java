@@ -32,6 +32,7 @@ import com.facebook.presto.spi.ConnectorTableLayoutResult;
 import com.facebook.presto.spi.ConnectorTableMetadata;
 import com.facebook.presto.spi.Constraint;
 import com.facebook.presto.spi.PrestoException;
+import com.facebook.presto.spi.connector.ConnectorSplitManager;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 import com.facebook.presto.spi.type.BigintType;
 import com.facebook.presto.testing.TestingNodeManager;
@@ -204,6 +205,6 @@ public class TestRaptorSplitManager
     private static ConnectorSplitSource getSplits(RaptorSplitManager splitManager, ConnectorTableLayoutResult layout)
     {
         ConnectorTransactionHandle transaction = new RaptorTransactionHandle();
-        return splitManager.getSplits(transaction, SESSION, layout.getTableLayout().getHandle());
+        return splitManager.getSplits(transaction, SESSION, layout.getTableLayout().getHandle(), ConnectorSplitManager.SplitSchedulingStrategy.ALL_AT_ONCE);
     }
 }

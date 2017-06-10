@@ -169,7 +169,7 @@ public class TestCassandraConnector
 
         List<ConnectorTableLayoutResult> layouts = metadata.getTableLayouts(SESSION, tableHandle, Constraint.alwaysTrue(), Optional.empty());
         ConnectorTableLayoutHandle layout = getOnlyElement(layouts).getTableLayout().getHandle();
-        List<ConnectorSplit> splits = getAllSplits(splitManager.getSplits(transaction, SESSION, layout));
+        List<ConnectorSplit> splits = getAllSplits(splitManager.getSplits(transaction, SESSION, layout, ConnectorSplitManager.SplitSchedulingStrategy.ALL_AT_ONCE));
 
         long rowNumber = 0;
         for (ConnectorSplit split : splits) {
