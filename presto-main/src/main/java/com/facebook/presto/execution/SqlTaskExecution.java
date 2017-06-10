@@ -348,19 +348,19 @@ public class SqlTaskExecution
         return updatedUnpartitionedSources;
     }
 
-    private synchronized void schedulePartitionedSource(TaskSource source)
+    private synchronized void schedulePartitionedSource(TaskSource sourceUpdate)
     {
-        // if this is not for the currently scheduling source, save off the splits for
-        // when the source is scheduled
-        if (!isSchedulingSource(source.getPlanNodeId())) {
-            pendingSplits.merge(source.getPlanNodeId(), source, TaskSource::update);
+        // if this is not for the currently scheduling source node, save off the splits for
+        // when the source node is scheduled
+        if (!isSchedulingSource(sourceUpdate.getPlanNodeId())) {
+            pendingSplits.merge(sourceUpdate.getPlanNodeId(), sourceUpdate, TaskSource::update);
             return;
         }
 
         // INTERESTING
-        DriverSplitRunnerFactory partitionedDriverFactory = partitionedDriverFactories.get(source.getPlanNodeId());
+        DriverSplitRunnerFactory partitionedDriverFactory = partitionedDriverFactories.get(sourceUpdate.getPlanNodeId());
         ImmutableList.Builder<DriverSplitRunner> runners = ImmutableList.builder();
-        for (ScheduledSplit scheduledSplit : source.getSplits()) {
+        for (ScheduledSplit scheduledSplit : sourceUpdate.getSplits()) {
             OptionalInt driverGroupId;
             if (partitionedDriverFactory.getExecutionFlowStrategy() == ExecutionFlowStrategy.PER_BUCKET) {
                 driverGroupId = scheduledSplit.getSplit().getConnectorSplit().getDriverGroupId();
@@ -375,11 +375,11 @@ public class SqlTaskExecution
         // END INTERESTING
 
         enqueueDrivers(false, runners.build());
-        if (source.isNoMoreSplits()) {
+        if (sourceUpdate.isNoMoreSplits()) {
             partitionedDriverFactory.setNoMoreSplits();
-            sourceStartOrder.remove(source.getPlanNodeId());
+            sourceStartOrder.remove(sourceUpdate.getPlanNodeId());
 
-            // schedule next source
+            // schedule next source node
             if (!sourceStartOrder.isEmpty()) {
                 TaskSource nextSource = pendingSplits.get(sourceStartOrder.peek());
                 if (nextSource != null) {
@@ -394,22 +394,22 @@ public class SqlTaskExecution
         return !sourceStartOrder.isEmpty() && sourceStartOrder.peek().equals(sourceId);
     }
 
-    private synchronized void scheduleUnpartitionedSource(TaskSource source, Map<PlanNodeId, TaskSource> updatedUnpartitionedSources)
+    private synchronized void scheduleUnpartitionedSource(TaskSource sourceUpdate, Map<PlanNodeId, TaskSource> updatedUnpartitionedSources)
     {
         // create new source
         TaskSource newSource;
-        TaskSource currentSource = unpartitionedSources.get(source.getPlanNodeId());
+        TaskSource currentSource = unpartitionedSources.get(sourceUpdate.getPlanNodeId());
         if (currentSource == null) {
-            newSource = source;
+            newSource = sourceUpdate;
         }
         else {
-            newSource = currentSource.update(source);
+            newSource = currentSource.update(sourceUpdate);
         }
 
         // only record new source if something changed
         if (newSource != currentSource) {
-            unpartitionedSources.put(source.getPlanNodeId(), newSource);
-            updatedUnpartitionedSources.put(source.getPlanNodeId(), newSource);
+            unpartitionedSources.put(sourceUpdate.getPlanNodeId(), newSource);
+            updatedUnpartitionedSources.put(sourceUpdate.getPlanNodeId(), newSource);
         }
     }
 
