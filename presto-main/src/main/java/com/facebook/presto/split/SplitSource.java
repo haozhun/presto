@@ -20,6 +20,9 @@ import com.google.common.util.concurrent.ListenableFuture;
 
 import java.io.Closeable;
 import java.util.List;
+import java.util.OptionalInt;
+
+import static java.util.Objects.requireNonNull;
 
 public interface SplitSource
         extends Closeable
@@ -30,8 +33,35 @@ public interface SplitSource
 
     ListenableFuture<List<Split>> getNextBatch(int maxSize);
 
+    default ListenableFuture<SplitBatch> getNextBatch(OptionalInt driverGroupId, int maxSize)
+    {
+        throw new UnsupportedOperationException();
+    }
+
     @Override
     void close();
 
     boolean isFinished();
+
+    class SplitBatch
+    {
+        private final List<Split> splits;
+        private final boolean noMoreSplits;
+
+        public SplitBatch(List<Split> splits, boolean noMoreSplits)
+        {
+            this.splits = requireNonNull(splits, "splits is null");
+            this.noMoreSplits = noMoreSplits;
+        }
+
+        public List<Split> getSplits()
+        {
+            return splits;
+        }
+
+        public boolean isNoMoreSplits()
+        {
+            return noMoreSplits;
+        }
+    }
 }
