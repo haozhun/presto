@@ -19,18 +19,24 @@ import com.facebook.presto.metadata.Split;
 import com.facebook.presto.spi.Node;
 import com.facebook.presto.split.EmptySplit;
 import com.facebook.presto.split.SplitSource;
+import com.facebook.presto.split.SplitSource.SplitBatch;
+import com.facebook.presto.sql.planner.plan.ExecutionFlowStrategy;
 import com.facebook.presto.sql.planner.plan.PlanNodeId;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
-import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
+import java.util.OptionalInt;
 import java.util.Set;
 
 import static com.facebook.presto.execution.scheduler.ScheduleResult.BlockedReason.SPLIT_QUEUES_FULL;
@@ -41,6 +47,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.google.common.util.concurrent.Futures.nonCancellationPropagating;
 import static io.airlift.concurrent.MoreFutures.getFutureValue;
+import static io.airlift.concurrent.MoreFutures.whenAnyComplete;
 import static java.util.Objects.requireNonNull;
 
 public class SourcePartitionedScheduler
@@ -59,8 +66,7 @@ public class SourcePartitionedScheduler
     private final int splitBatchSize;
     private final PlanNodeId partitionedNode;
 
-    private ListenableFuture<List<Split>> batchFuture;
-    private Set<Split> pendingSplits = ImmutableSet.of();
+    private final Map<OptionalInt, ScheduleGroup> scheduleGroups = new HashMap<>();
     private State state = State.INITIALIZED;
 
     public SourcePartitionedScheduler(
@@ -68,7 +74,8 @@ public class SourcePartitionedScheduler
             PlanNodeId partitionedNode,
             SplitSource splitSource,
             SplitPlacementPolicy splitPlacementPolicy,
-            int splitBatchSize)
+            int splitBatchSize,
+            ExecutionFlowStrategy executionFlowStrategy)
     {
         this.stage = requireNonNull(stage, "stage is null");
         this.splitSource = requireNonNull(splitSource, "splitSource is null");
@@ -78,76 +85,126 @@ public class SourcePartitionedScheduler
         this.splitBatchSize = splitBatchSize;
 
         this.partitionedNode = partitionedNode;
+
+        if (executionFlowStrategy == ExecutionFlowStrategy.PER_BUCKET) {
+            scheduleGroups.put(OptionalInt.of(0), new ScheduleGroup(OptionalInt.of(0)));
+            scheduleGroups.put(OptionalInt.of(1), new ScheduleGroup(OptionalInt.of(1)));
+        }
+        else {
+            scheduleGroups.put(OptionalInt.empty(), new ScheduleGroup(OptionalInt.empty()));
+        }
     }
 
     @Override
     public synchronized ScheduleResult schedule()
     {
-        // try to get the next batch if necessary
-        if (pendingSplits.isEmpty()) {
-            if (batchFuture == null) {
-                if (splitSource.isFinished()) {
-                    return handleNoMoreSplits();
+        int overallSplitAssignmentCount = 0;
+        ImmutableSet.Builder<RemoteTask> overallNewTasks = ImmutableSet.builder();
+        List<ListenableFuture<?>> overallBlockedPlacements = new ArrayList<>();
+        List<OptionalInt> fullyScheduledGroup = new ArrayList<>();
+
+        for (Entry<OptionalInt, ScheduleGroup> entry : scheduleGroups.entrySet()) {
+            OptionalInt driverGroupId = entry.getKey();
+            ScheduleGroup scheduleGroup = entry.getValue();
+            Set<Split> pendingSplits = scheduleGroup.pendingSplits;
+
+            boolean belowLowWatermark = pendingSplits.size() <= splitBatchSize / 2;
+            if (belowLowWatermark) {
+                // try to get the next batch
+                if (scheduleGroup.batchFuture == null) {
+                    if (splitSource.isFinished()) {
+                        checkArgument(!driverGroupId.isPresent(), "Milestone when hit");
+                        return handleNoMoreSplits(driverGroupId);
+                    }
+                    scheduleGroup.batchFuture = splitSource.getNextBatch(driverGroupId, splitBatchSize - pendingSplits.size());
+
+                    long start = System.nanoTime();
+                    Futures.addCallback(scheduleGroup.batchFuture, new FutureCallback<SplitBatch>()
+                    {
+                        @Override
+                        public void onSuccess(SplitBatch result)
+                        {
+                            stage.recordGetSplitTime(start);
+                        }
+
+                        @Override
+                        public void onFailure(Throwable t)
+                        {
+                        }
+                    });
                 }
-                batchFuture = splitSource.getNextBatch(splitBatchSize);
 
-                long start = System.nanoTime();
-                Futures.addCallback(batchFuture, new FutureCallback<List<Split>>()
-                {
-                    @Override
-                    public void onSuccess(List<Split> result)
-                    {
-                        stage.recordGetSplitTime(start);
-                    }
+                if (scheduleGroup.batchFuture.isDone()) {
+                    SplitBatch nextSplits = getFutureValue(scheduleGroup.batchFuture);
+                    scheduleGroup.batchFuture = null;
 
-                    @Override
-                    public void onFailure(Throwable t)
-                    {
+                    pendingSplits.addAll(nextSplits.getSplits());
+                    if (nextSplits.isNoMoreSplits()) {
+                        scheduleGroup.noMoreSplits = true;
                     }
-                });
+                }
+                else {
+                    if (pendingSplits.isEmpty()) {
+                        // wrap batch future so cancellation is not propagated
+                        ListenableFuture<SplitBatch> blocked = nonCancellationPropagating(scheduleGroup.batchFuture);
+                        return new ScheduleResult(false, ImmutableSet.of(), blocked, WAITING_FOR_SOURCE, 0);
+                    }
+                }
             }
 
-            if (!batchFuture.isDone()) {
-                // wrap batch future so cancellation is not propagated
-                ListenableFuture<List<Split>> blocked = nonCancellationPropagating(batchFuture);
-                return new ScheduleResult(false, ImmutableSet.of(), blocked, WAITING_FOR_SOURCE, 0);
+            if (!pendingSplits.isEmpty() && state == State.INITIALIZED) {
+                state = State.SPLITS_SCHEDULED;
             }
-            pendingSplits = ImmutableSet.copyOf(getFutureValue(batchFuture));
-            batchFuture = null;
+
+            // calculate placements for splits
+            SplitPlacementResult splitPlacementResult = splitPlacementPolicy.computeAssignments(pendingSplits);
+            Multimap<Node, Split> splitAssignment = splitPlacementResult.getAssignments();
+
+            // remove splits with successful placements
+            pendingSplits.removeAll(splitAssignment.values());
+            overallSplitAssignmentCount += splitAssignment.size();
+            if (!pendingSplits.isEmpty()) {
+                overallBlockedPlacements.add(splitPlacementResult.getBlocked());
+            }
+
+            // TODO! add comment
+            if (pendingSplits.isEmpty() && scheduleGroup.noMoreSplits) {
+                fullyScheduledGroup.add(driverGroupId);
+            }
+
+            // assign the splits with successful placements
+            // TODO! notify the task that a particular driver is done
+            // TODO! assert that (in assignSplits) only 1 node is assigned (assuming driver group scheduling)
+            Set<RemoteTask> newTasks = assignSplits(splitAssignment);
+            overallNewTasks.addAll(newTasks);
         }
 
-        if (!pendingSplits.isEmpty() && state == State.INITIALIZED) {
-            state = State.SPLITS_SCHEDULED;
+        if (overallBlockedPlacements.isEmpty()) {
+            boolean finished = false;
+            // all splits assigned - check if the source is finished
+            finished = splitSource.isFinished();
+            if (finished) {
+                splitSource.close();
+            }
+            return new ScheduleResult(
+                    finished,
+                    overallNewTasks.build(),
+                    overallSplitAssignmentCount);
         }
 
-        // assign the splits
-        SplitPlacementResult splitPlacementResult = splitPlacementPolicy.computeAssignments(pendingSplits);
-        Multimap<Node, Split> splitAssignment = splitPlacementResult.getAssignments();
-        Set<RemoteTask> newTasks = assignSplits(splitAssignment);
+        overallNewTasks.addAll(finalizeTaskCreationIfNecessary());
 
-        // remove assigned splits
-        pendingSplits = ImmutableSet.copyOf(Sets.difference(pendingSplits, ImmutableSet.copyOf(splitAssignment.values())));
-
-        // if not all splits were consumed, return a partial result
-        if (!pendingSplits.isEmpty()) {
-            newTasks = ImmutableSet.<RemoteTask>builder()
-                    .addAll(newTasks)
-                    .addAll(finalizeTaskCreationIfNecessary())
-                    .build();
-
-            return new ScheduleResult(false, newTasks, splitPlacementResult.getBlocked(), SPLIT_QUEUES_FULL, splitAssignment.values().size());
-        }
-
-        // all splits assigned - check if the source is finished
-        boolean finished = splitSource.isFinished();
-        if (finished) {
-            splitSource.close();
-        }
-        return new ScheduleResult(finished, newTasks, splitAssignment.values().size());
+        return new ScheduleResult(
+                false,
+                overallNewTasks.build(),
+                getFirstCompleteAndCancelOthers(overallBlockedPlacements),
+                SPLIT_QUEUES_FULL,
+                overallSplitAssignmentCount);
     }
 
-    private ScheduleResult handleNoMoreSplits()
+    private ScheduleResult handleNoMoreSplits(OptionalInt driverGroupId)
     {
+        checkArgument(!driverGroupId.isPresent()); // caller has the same check
         switch (state) {
             case INITIALIZED:
                 // we have not scheduled a single split so far
@@ -156,8 +213,9 @@ public class SourcePartitionedScheduler
                 state = State.FINISHED;
                 splitSource.close();
                 return new ScheduleResult(true, ImmutableSet.of(), 0);
+            default:
+                throw new IllegalStateException("SourcePartitionedScheduler expected to be in INITIALIZED or SPLITS_SCHEDULED state but is in " + state);
         }
-        throw new IllegalStateException("SourcePartitionedScheduler expected to be in INITIALIZED or SPLITS_SCHEDULED state but is in " + state);
     }
 
     @Override
@@ -187,9 +245,11 @@ public class SourcePartitionedScheduler
         ImmutableSet.Builder<RemoteTask> newTasks = ImmutableSet.builder();
         for (Entry<Node, Collection<Split>> taskSplits : splitAssignment.asMap().entrySet()) {
             // source partitioned tasks can only receive broadcast data; otherwise it would have a different distribution
-            newTasks.addAll(stage.scheduleSplits(taskSplits.getKey(), ImmutableMultimap.<PlanNodeId, Split>builder()
-                    .putAll(partitionedNode, taskSplits.getValue())
-                    .build()));
+            newTasks.addAll(stage.scheduleSplits(
+                    taskSplits.getKey(),
+                    ImmutableMultimap.<PlanNodeId, Split>builder()
+                            .putAll(partitionedNode, taskSplits.getValue())
+                            .build()));
         }
         return newTasks.build();
     }
@@ -213,5 +273,35 @@ public class SourcePartitionedScheduler
         stage.transitionToSchedulingSplits();
 
         return newTasks;
+    }
+
+    private static ListenableFuture<?> getFirstCompleteAndCancelOthers(List<ListenableFuture<?>> blockedFutures)
+    {
+        // wait for the first task to unblock and then cancel all futures to free up resources
+        ListenableFuture<?> result = whenAnyComplete(blockedFutures);
+        /*
+        result.addListener(
+                () -> {
+                    for (ListenableFuture<?> blockedFuture : blockedFutures) {
+                        blockedFuture.cancel(true);
+                    }
+                },
+                directExecutor());
+        */
+        return result;
+    }
+
+    private static class ScheduleGroup
+    {
+        // TODO! this field is unused
+        public final OptionalInt driverGroupId;
+        public ListenableFuture<SplitBatch> batchFuture = null;
+        public Set<Split> pendingSplits = new HashSet<>();
+        public boolean noMoreSplits = false;
+
+        public ScheduleGroup(OptionalInt driverGroupId)
+        {
+            this.driverGroupId = driverGroupId;
+        }
     }
 }

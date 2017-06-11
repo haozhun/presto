@@ -122,6 +122,8 @@ public final class HttpRemoteTask
     @GuardedBy("this")
     private volatile int pendingSourceSplitCount;
     @GuardedBy("this")
+    private final SetMultimap<PlanNodeId, OptionalInt> pendingNoMoreSplitsForDriverGroup = HashMultimap.create();
+    @GuardedBy("this")
     private final Set<PlanNodeId> noMoreSplits = new HashSet<>();
     @GuardedBy("this")
     private final AtomicReference<OutputBuffers> outputBuffers = new AtomicReference<>();

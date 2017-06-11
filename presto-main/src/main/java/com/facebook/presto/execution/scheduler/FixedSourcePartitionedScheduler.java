@@ -19,6 +19,7 @@ import com.facebook.presto.metadata.Split;
 import com.facebook.presto.spi.Node;
 import com.facebook.presto.split.SplitSource;
 import com.facebook.presto.sql.planner.NodePartitionMap;
+import com.facebook.presto.sql.planner.plan.ExecutionFlowStrategy;
 import com.facebook.presto.sql.planner.plan.PlanNodeId;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -52,6 +53,7 @@ public class FixedSourcePartitionedScheduler
     public FixedSourcePartitionedScheduler(
             SqlStageExecution stage,
             Map<PlanNodeId, SplitSource> splitSources,
+            Map<PlanNodeId, ExecutionFlowStrategy> executionFlowStrategies,
             List<PlanNodeId> schedulingOrder,
             NodePartitionMap partitioning,
             int splitBatchSize,
@@ -65,10 +67,11 @@ public class FixedSourcePartitionedScheduler
         this.partitioning = partitioning;
 
         checkArgument(splitSources.keySet().equals(ImmutableSet.copyOf(schedulingOrder)));
+        checkArgument(executionFlowStrategies.keySet().equals(ImmutableSet.copyOf(schedulingOrder)));
 
         FixedSplitPlacementPolicy splitPlacementPolicy = new FixedSplitPlacementPolicy(nodeSelector, partitioning, stage::getAllTasks);
         sourcePartitionedSchedulers = new ArrayDeque<>(schedulingOrder.stream()
-                .map(sourceId -> new SourcePartitionedScheduler(stage, sourceId, splitSources.get(sourceId), splitPlacementPolicy, splitBatchSize))
+                .map(planNodeId -> new SourcePartitionedScheduler(stage, planNodeId, splitSources.get(planNodeId), splitPlacementPolicy, splitBatchSize, executionFlowStrategies.get(planNodeId)))
                 .collect(Collectors.toList()));
     }
 

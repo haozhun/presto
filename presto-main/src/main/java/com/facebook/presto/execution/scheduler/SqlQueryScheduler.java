@@ -35,8 +35,11 @@ import com.facebook.presto.sql.planner.NodePartitionMap;
 import com.facebook.presto.sql.planner.NodePartitioningManager;
 import com.facebook.presto.sql.planner.PartitioningHandle;
 import com.facebook.presto.sql.planner.StageExecutionPlan;
+import com.facebook.presto.sql.planner.plan.ExecutionFlowStrategy;
 import com.facebook.presto.sql.planner.plan.PlanFragmentId;
+import com.facebook.presto.sql.planner.plan.PlanNode;
 import com.facebook.presto.sql.planner.plan.PlanNodeId;
+import com.facebook.presto.sql.planner.plan.TableScanNode;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -75,6 +78,7 @@ import static com.facebook.presto.sql.planner.SystemPartitioningHandle.FIXED_BRO
 import static com.facebook.presto.sql.planner.SystemPartitioningHandle.SOURCE_DISTRIBUTION;
 import static com.facebook.presto.util.Failures.checkCondition;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
@@ -227,13 +231,19 @@ public class SqlQueryScheduler
         if (partitioningHandle.equals(SOURCE_DISTRIBUTION)) {
             // nodes are selected dynamically based on the constraints of the splits and the system load
             Entry<PlanNodeId, SplitSource> entry = Iterables.getOnlyElement(plan.getSplitSources().entrySet());
+            PlanNodeId planNodeId = entry.getKey();
             ConnectorId connectorId = entry.getValue().getConnectorId();
             if (isInternalSystemConnector(connectorId)) {
                 connectorId = null;
             }
             NodeSelector nodeSelector = nodeScheduler.createNodeSelector(connectorId);
             SplitPlacementPolicy placementPolicy = new DynamicSplitPlacementPolicy(nodeSelector, stage::getAllTasks);
-            stageSchedulers.put(stageId, new SourcePartitionedScheduler(stage, entry.getKey(), entry.getValue(), placementPolicy, splitBatchSize));
+
+            PlanNode planNode = plan.getFragment().getPartitionedSourceNodes().get(planNodeId);
+            verify(planNode instanceof TableScanNode);
+            ExecutionFlowStrategy executionFlowStrategy = ((TableScanNode) planNode).getExecutionFlowStrategy();
+
+            stageSchedulers.put(stageId, new SourcePartitionedScheduler(stage, planNodeId, entry.getValue(), placementPolicy, splitBatchSize, executionFlowStrategy));
             bucketToPartition = Optional.of(new int[1]);
         }
         else {
@@ -242,10 +252,18 @@ public class SqlQueryScheduler
 
             Map<PlanNodeId, SplitSource> splitSources = plan.getSplitSources();
             if (!splitSources.isEmpty()) {
+                List<PlanNodeId> schedulingOrder = plan.getFragment().getPartitionedSources();
+                ImmutableMap.Builder<PlanNodeId, ExecutionFlowStrategy> executionFlowStrategies = ImmutableMap.builder();
+                for (PlanNodeId planNodeId : schedulingOrder) {
+                    PlanNode planNode = plan.getFragment().getPartitionedSourceNodes().get(planNodeId);
+                    ExecutionFlowStrategy executionFlowStrategy = ((TableScanNode) planNode).getExecutionFlowStrategy();
+                    executionFlowStrategies.put(planNodeId, executionFlowStrategy);
+                }
                 stageSchedulers.put(stageId, new FixedSourcePartitionedScheduler(
                         stage,
                         splitSources,
-                        plan.getFragment().getPartitionedSources(),
+                        executionFlowStrategies.build(),
+                        schedulingOrder,
                         nodePartitionMap,
                         splitBatchSize,
                         nodeScheduler.createNodeSelector(null)));
