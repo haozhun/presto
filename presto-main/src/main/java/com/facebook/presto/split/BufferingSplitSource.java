@@ -16,16 +16,15 @@ package com.facebook.presto.split;
 import com.facebook.presto.connector.ConnectorId;
 import com.facebook.presto.metadata.Split;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
-import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.OptionalInt;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.util.concurrent.Futures.immediateFuture;
-import static java.util.Collections.synchronizedList;
 import static java.util.Objects.requireNonNull;
 
 public class BufferingSplitSource
@@ -56,21 +55,31 @@ public class BufferingSplitSource
     public ListenableFuture<List<Split>> getNextBatch(int maxSize)
     {
         checkArgument(maxSize > 0, "Cannot fetch a batch of zero size");
-        List<Split> result = synchronizedList(new ArrayList<>(maxSize));
-        ListenableFuture<?> future = fetchSplits(Math.min(bufferSize, maxSize), maxSize, result);
-        return Futures.transform(future, ignored -> ImmutableList.copyOf(result));
+        return Futures.transform(getNextBatch(OptionalInt.empty(), maxSize), SplitBatch::getSplits);
     }
 
-    private ListenableFuture<?> fetchSplits(int min, int max, List<Split> output)
+    @Override
+    public ListenableFuture<SplitBatch> getNextBatch(OptionalInt driverGroupId, int maxSize)
+    {
+        checkArgument(maxSize > 0, "Cannot fetch a batch of zero size");
+        FetchSplitsResult fetchSplitsResult = new FetchSplitsResult();
+        ListenableFuture<?> future = fetchSplits(Math.min(bufferSize, maxSize), maxSize, driverGroupId, fetchSplitsResult);
+        return Futures.transform(future, ignored -> fetchSplitsResult.toSplitBatch());
+    }
+
+    private ListenableFuture<?> fetchSplits(int min, int max, OptionalInt driverGroupId, FetchSplitsResult result)
     {
         checkArgument(min <= max, "Min splits greater than max splits");
-        if (source.isFinished() || output.size() >= min) {
+        if (source.isFinished() || result.splitSize() >= min) {
             return immediateFuture(null);
         }
-        ListenableFuture<List<Split>> future = source.getNextBatch(max - output.size());
+        ListenableFuture<SplitBatch> future = source.getNextBatch(driverGroupId, max - result.splitSize());
         return Futures.transformAsync(future, splits -> {
-            output.addAll(splits);
-            return fetchSplits(min, max, output);
+            result.update(splits);
+            if (splits.isNoMoreSplits()) {
+                return immediateFuture(null);
+            }
+            return fetchSplits(min, max, driverGroupId, result);
         });
     }
 
@@ -84,5 +93,29 @@ public class BufferingSplitSource
     public boolean isFinished()
     {
         return source.isFinished();
+    }
+
+    private static class FetchSplitsResult
+    {
+        private final List<Split> splits = new ArrayList<>();
+        private boolean noMoreSplits;
+
+        public synchronized void update(SplitBatch splitBatch)
+        {
+            splits.addAll(splitBatch.getSplits());
+            if (splitBatch.isNoMoreSplits()) {
+                noMoreSplits = true;
+            }
+        }
+
+        public synchronized int splitSize()
+        {
+            return splits.size();
+        }
+
+        public synchronized SplitBatch toSplitBatch()
+        {
+            return new SplitBatch(splits, noMoreSplits);
+        }
     }
 }

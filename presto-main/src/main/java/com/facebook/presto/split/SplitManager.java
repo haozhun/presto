@@ -68,7 +68,7 @@ public class SplitManager
                 layout.getConnectorHandle(),
                 executionFlowStrategy == ExecutionFlowStrategy.PER_BUCKET ? SplitSchedulingStrategy.PER_BUCKET : SplitSchedulingStrategy.ALL_AT_ONCE);
 
-        SplitSource splitSource = new ConnectorAwareSplitSource(connectorId, layout.getTransactionHandle(), source);
+        SplitSource splitSource = new ConnectorAwareSplitSource(connectorId, layout.getTransactionHandle(), source, executionFlowStrategy);
         if (minScheduleSplitBatchSize > 1) {
             splitSource = new BufferingSplitSource(splitSource, minScheduleSplitBatchSize);
         }

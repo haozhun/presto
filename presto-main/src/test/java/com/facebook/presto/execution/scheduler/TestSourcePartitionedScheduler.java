@@ -464,7 +464,7 @@ public class TestSourcePartitionedScheduler
 
         return new StageExecutionPlan(
                 testFragment,
-                ImmutableMap.of(tableScanNodeId, new ConnectorAwareSplitSource(CONNECTOR_ID, TestingTransactionHandle.create(), splitSource)),
+                ImmutableMap.of(tableScanNodeId, new ConnectorAwareSplitSource(CONNECTOR_ID, TestingTransactionHandle.create(), splitSource, ExecutionFlowStrategy.UNKNOWN)),
                 ImmutableList.of());
     }
 

@@ -17,13 +17,18 @@ import com.facebook.presto.connector.ConnectorId;
 import com.facebook.presto.metadata.Split;
 import com.facebook.presto.spi.ConnectorSplit;
 import com.facebook.presto.spi.ConnectorSplitSource;
+import com.facebook.presto.spi.ConnectorSplitSource.ConnectorSplitBatch;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
+import com.facebook.presto.sql.planner.plan.ExecutionFlowStrategy;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 
 import java.util.List;
+import java.util.OptionalInt;
 
+import static com.google.common.base.Preconditions.checkState;
 import static io.airlift.concurrent.MoreFutures.toListenableFuture;
 import static java.util.Objects.requireNonNull;
 
@@ -33,12 +38,18 @@ public class ConnectorAwareSplitSource
     private final ConnectorId connectorId;
     private final ConnectorTransactionHandle transactionHandle;
     private final ConnectorSplitSource source;
+    private final ExecutionFlowStrategy executionFlowStrategy;
 
-    public ConnectorAwareSplitSource(ConnectorId connectorId, ConnectorTransactionHandle transactionHandle, ConnectorSplitSource source)
+    public ConnectorAwareSplitSource(
+            ConnectorId connectorId,
+            ConnectorTransactionHandle transactionHandle,
+            ConnectorSplitSource source,
+            ExecutionFlowStrategy executionFlowStrategy)
     {
         this.connectorId = requireNonNull(connectorId, "connectorId is null");
         this.transactionHandle = requireNonNull(transactionHandle, "transactionHandle is null");
         this.source = requireNonNull(source, "source is null");
+        this.executionFlowStrategy = requireNonNull(executionFlowStrategy, "executionFlowStrategy is null");
     }
 
     @Override
@@ -56,8 +67,23 @@ public class ConnectorAwareSplitSource
     @Override
     public ListenableFuture<List<Split>> getNextBatch(int maxSize)
     {
+        checkState(executionFlowStrategy != ExecutionFlowStrategy.PER_BUCKET);
         ListenableFuture<List<ConnectorSplit>> nextBatch = toListenableFuture(source.getNextBatch(maxSize));
         return Futures.transform(nextBatch, splits -> Lists.transform(splits, split -> new Split(connectorId, transactionHandle, split)));
+    }
+
+    @Override
+    public ListenableFuture<SplitBatch> getNextBatch(OptionalInt driverGroupId, int maxSize)
+    {
+        checkState(driverGroupId.isPresent() == (executionFlowStrategy == ExecutionFlowStrategy.PER_BUCKET));
+        ListenableFuture<ConnectorSplitBatch> nextBatch = toListenableFuture(source.getNextBatch(driverGroupId, maxSize));
+        return Futures.transform(nextBatch, splitBatch -> {
+            ImmutableList.Builder<Split> result = ImmutableList.builder();
+            for (ConnectorSplit connectorSplit : splitBatch.getSplits()) {
+                result.add(new Split(connectorId, transactionHandle, connectorSplit));
+            }
+            return new SplitBatch(result.build(), splitBatch.isNoMoreSplits());
+        });
     }
 
     @Override
