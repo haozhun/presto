@@ -15,6 +15,7 @@ package com.facebook.presto.server;
 
 import com.facebook.presto.OutputBuffers.OutputBufferId;
 import com.facebook.presto.Session;
+import com.facebook.presto.TaskSource;
 import com.facebook.presto.execution.TaskId;
 import com.facebook.presto.execution.TaskInfo;
 import com.facebook.presto.execution.TaskManager;
@@ -60,6 +61,7 @@ import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.Collectors;
 
 import static com.facebook.presto.PrestoMediaTypes.PRESTO_PAGES;
 import static com.facebook.presto.client.PrestoHeaders.PRESTO_BUFFER_COMPLETE;
@@ -124,6 +126,21 @@ public class TaskResource
     {
         requireNonNull(taskUpdateRequest, "taskUpdateRequest is null");
 
+        for (TaskSource taskSource : taskUpdateRequest.getSources()) {
+            System.out.println(String.format(
+                    "HJIN5:  %s.%s PlanNode: %-3s noMoreSplitForDG: %s noMoreSplits: %s sources: %s",
+                    taskId.getStageId().getId(),
+                    taskId.getId(),
+                    taskSource.getPlanNodeId(),
+                    taskSource.getNoMoreSplitsForDriverGroup().stream()
+                            .map(driverGroupId -> String.valueOf(driverGroupId.orElseGet(() -> -1)))
+                            .collect(Collectors.joining(", ")),
+                    taskSource.isNoMoreSplits(),
+                    taskSource.getSplits().stream()
+                            .map(scheduledSplit -> scheduledSplit.getSplit().getConnectorId().toString())
+                            .collect(Collectors.joining(", "))
+            ));
+        }
         Session session = taskUpdateRequest.getSession().toSession(sessionPropertyManager);
         TaskInfo taskInfo = taskManager.updateTask(session,
                 taskId,

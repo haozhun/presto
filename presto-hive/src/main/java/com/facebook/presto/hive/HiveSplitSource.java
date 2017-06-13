@@ -214,7 +214,7 @@ class HiveSplitSource
 
         CompletableFuture<List<ConnectorSplit>> batch = queues.getBatchAsync(driverGroupId, maxSize);
         return batch.thenApply(splits -> {
-            System.out.println(String.format("HJIN1: fetch %s", splits.size()));
+            //System.out.println(String.format("HJIN1: fetch %s", splits.size()));
             return new ConnectorSplitBatch(splits, splits.isEmpty() && state.getKind() == NO_MORE_SPLITS);
         });
     }
