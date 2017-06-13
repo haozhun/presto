@@ -29,7 +29,8 @@ public class ScheduleResult
     public enum BlockedReason
     {
         SPLIT_QUEUES_FULL,
-        WAITING_FOR_SOURCE
+        WAITING_FOR_SOURCE,
+        NO_ACTIVE_DRIVER_GROUP,
     }
 
     private final Set<RemoteTask> newTasks;

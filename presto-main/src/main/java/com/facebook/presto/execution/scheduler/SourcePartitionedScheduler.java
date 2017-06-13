@@ -23,6 +23,7 @@ import com.facebook.presto.split.SplitSource;
 import com.facebook.presto.split.SplitSource.SplitBatch;
 import com.facebook.presto.sql.planner.plan.ExecutionFlowStrategy;
 import com.facebook.presto.sql.planner.plan.PlanNodeId;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
@@ -34,6 +35,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -88,21 +90,21 @@ public class SourcePartitionedScheduler
         this.partitionedNode = partitionedNode;
 
         if (executionFlowStrategy == ExecutionFlowStrategy.PER_BUCKET) {
-            scheduleGroups.put(OptionalInt.of(0), new ScheduleGroup(OptionalInt.of(0)));
-            scheduleGroups.put(OptionalInt.of(1), new ScheduleGroup(OptionalInt.of(1)));
+            startDriverGroups(ImmutableList.of(OptionalInt.of(0), OptionalInt.of(1)));
         }
         else {
-            scheduleGroups.put(OptionalInt.empty(), new ScheduleGroup(OptionalInt.empty()));
+            startDriverGroups(ImmutableList.of(OptionalInt.empty()));
         }
     }
 
     @Override
     public synchronized ScheduleResult schedule()
     {
+        // TODO! return BLOCKED when there are no driver groups active to avoid busy waiting
+
         int overallSplitAssignmentCount = 0;
         ImmutableSet.Builder<RemoteTask> overallNewTasks = ImmutableSet.builder();
         List<ListenableFuture<?>> overallBlockedPlacements = new ArrayList<>();
-        List<OptionalInt> fullyScheduledGroup = new ArrayList<>();
 
         for (Entry<OptionalInt, ScheduleGroup> entry : scheduleGroups.entrySet()) {
             OptionalInt driverGroupId = entry.getKey();
@@ -228,6 +230,28 @@ public class SourcePartitionedScheduler
     public void close()
     {
         splitSource.close();
+    }
+
+    public void startDriverGroups(List<OptionalInt> driverGroupIds)
+    {
+        for (OptionalInt driverGroupId : driverGroupIds) {
+            scheduleGroups.put(driverGroupId, new ScheduleGroup(driverGroupId));
+        }
+    }
+
+    public List<OptionalInt> getAndCleanUpCompletedDriverGroups()
+    {
+        //TODO! include all driver groups here if the the scheduler is done.
+        ImmutableList.Builder<OptionalInt> result = ImmutableList.builder();
+        Iterator<Entry<OptionalInt, ScheduleGroup>> entryIterator = scheduleGroups.entrySet().iterator();
+        while (entryIterator.hasNext()) {
+            Entry<OptionalInt, ScheduleGroup> entry = entryIterator.next();
+            if (entry.getValue().state == ScheduleGroupState.DONE) {
+                result.add(entry.getKey());
+                entryIterator.remove();
+            }
+        }
+        return result.build();
     }
 
     private ScheduleResult scheduleEmptySplit()
