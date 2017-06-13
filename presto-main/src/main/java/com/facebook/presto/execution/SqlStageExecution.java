@@ -43,6 +43,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -288,7 +289,7 @@ public final class SqlStageExecution
         return scheduleTask(node, new TaskId(stateMachine.getStageId(), partition), ImmutableMultimap.of());
     }
 
-    public synchronized Set<RemoteTask> scheduleSplits(Node node, Multimap<PlanNodeId, Split> splits)
+    public synchronized Set<RemoteTask> scheduleSplits(Node node, Multimap<PlanNodeId, Split> splits, Map<PlanNodeId, OptionalInt> noMoreSplitsNotification)
     {
         requireNonNull(node, "node is null");
         requireNonNull(splits, "splits is null");
@@ -299,15 +300,20 @@ public final class SqlStageExecution
 
         ImmutableSet.Builder<RemoteTask> newTasks = ImmutableSet.builder();
         Collection<RemoteTask> tasks = this.tasks.get(node);
+        RemoteTask task;
         if (tasks == null) {
             // The output buffer depends on the task id starting from 0 and being sequential, since each
             // task is assigned a private buffer based on task id.
             TaskId taskId = new TaskId(stateMachine.getStageId(), nextTaskId.getAndIncrement());
-            newTasks.add(scheduleTask(node, taskId, splits));
+            task = scheduleTask(node, taskId, splits);
+            newTasks.add(task);
         }
         else {
-            RemoteTask task = tasks.iterator().next();
+            task = tasks.iterator().next();
             task.addSplits(splits);
+        }
+        for (Entry<PlanNodeId, OptionalInt> entry : noMoreSplitsNotification.entrySet()) {
+            task.noMoreSplits(entry.getKey(), entry.getValue());
         }
         return newTasks.build();
     }

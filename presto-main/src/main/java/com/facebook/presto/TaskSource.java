@@ -18,6 +18,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.OptionalInt;
 import java.util.Set;
 
 import static com.google.common.base.MoreObjects.toStringHelper;
@@ -28,17 +29,28 @@ public class TaskSource
 {
     private final PlanNodeId planNodeId;
     private final Set<ScheduledSplit> splits;
+    private final Set<OptionalInt> noMoreSplitsForDriverGroup;
     private final boolean noMoreSplits;
 
     @JsonCreator
     public TaskSource(
             @JsonProperty("planNodeId") PlanNodeId planNodeId,
             @JsonProperty("splits") Set<ScheduledSplit> splits,
+            @JsonProperty("noMoreSplitsForDriverGroup") Set<OptionalInt> noMoreSplitsForDriverGroup,
             @JsonProperty("noMoreSplits") boolean noMoreSplits)
     {
         this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
         this.splits = ImmutableSet.copyOf(requireNonNull(splits, "splits is null"));
+        this.noMoreSplitsForDriverGroup = ImmutableSet.copyOf(noMoreSplitsForDriverGroup);
         this.noMoreSplits = noMoreSplits;
+    }
+
+    public TaskSource(
+            PlanNodeId planNodeId,
+            Set<ScheduledSplit> splits,
+            boolean noMoreSplits)
+    {
+        this(planNodeId, splits, ImmutableSet.of(), noMoreSplits);
     }
 
     @JsonProperty
@@ -51,6 +63,12 @@ public class TaskSource
     public Set<ScheduledSplit> getSplits()
     {
         return splits;
+    }
+
+    @JsonProperty
+    public Set<OptionalInt> getNoMoreSplitsForDriverGroup()
+    {
+        return noMoreSplitsForDriverGroup;
     }
 
     @JsonProperty

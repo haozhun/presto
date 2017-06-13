@@ -20,6 +20,8 @@ import com.facebook.presto.sql.planner.plan.PlanNodeId;
 import com.google.common.collect.Multimap;
 import com.google.common.util.concurrent.ListenableFuture;
 
+import java.util.OptionalInt;
+
 public interface RemoteTask
 {
     TaskId getTaskId();
@@ -35,6 +37,8 @@ public interface RemoteTask
     void addSplits(Multimap<PlanNodeId, Split> splits);
 
     void noMoreSplits(PlanNodeId sourceId);
+
+    void noMoreSplits(PlanNodeId sourceId, OptionalInt driverGroupId);
 
     void setOutputBuffers(OutputBuffers outputBuffers);
 

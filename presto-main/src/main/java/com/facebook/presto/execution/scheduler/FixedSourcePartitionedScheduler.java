@@ -128,7 +128,7 @@ public class FixedSourcePartitionedScheduler
         }
     }
 
-    private static class FixedSplitPlacementPolicy
+    public static class FixedSplitPlacementPolicy
             implements SplitPlacementPolicy
     {
         private final NodeSelector nodeSelector;
@@ -159,6 +159,11 @@ public class FixedSourcePartitionedScheduler
         public List<Node> allNodes()
         {
             return ImmutableList.copyOf(partitioning.getPartitionToNode().values());
+        }
+
+        public Node getNodeForBucket(int bucketId)
+        {
+            return partitioning.getPartitionToNode().get(partitioning.getBucketToPartition()[bucketId]);
         }
     }
 }

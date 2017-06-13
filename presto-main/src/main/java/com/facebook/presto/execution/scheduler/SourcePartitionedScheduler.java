@@ -15,6 +15,7 @@ package com.facebook.presto.execution.scheduler;
 
 import com.facebook.presto.execution.RemoteTask;
 import com.facebook.presto.execution.SqlStageExecution;
+import com.facebook.presto.execution.scheduler.FixedSourcePartitionedScheduler.FixedSplitPlacementPolicy;
 import com.facebook.presto.metadata.Split;
 import com.facebook.presto.spi.Node;
 import com.facebook.presto.split.EmptySplit;
@@ -22,6 +23,7 @@ import com.facebook.presto.split.SplitSource;
 import com.facebook.presto.split.SplitSource.SplitBatch;
 import com.facebook.presto.sql.planner.plan.ExecutionFlowStrategy;
 import com.facebook.presto.sql.planner.plan.PlanNodeId;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
@@ -30,7 +32,6 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -139,8 +140,11 @@ public class SourcePartitionedScheduler
                     scheduleGroup.batchFuture = null;
 
                     pendingSplits.addAll(nextSplits.getSplits());
-                    if (nextSplits.isNoMoreSplits()) {
-                        scheduleGroup.noMoreSplits = true;
+                    if (nextSplits.isNoMoreSplits() && scheduleGroup.state == ScheduleGroupState.INITIAL) {
+                        scheduleGroup.state = ScheduleGroupState.NO_MORE_SPLITS;
+                        if (driverGroupId.isPresent()) {
+                            scheduleGroup.node = ((FixedSplitPlacementPolicy) splitPlacementPolicy).getNodeForBucket(driverGroupId.getAsInt());
+                        }
                     }
                 }
                 else {
@@ -168,14 +172,16 @@ public class SourcePartitionedScheduler
             }
 
             // TODO! add comment
-            if (pendingSplits.isEmpty() && scheduleGroup.noMoreSplits) {
-                fullyScheduledGroup.add(driverGroupId);
+            Map<Node, OptionalInt> noMoreSplitsNotification = ImmutableMap.of();
+            if (pendingSplits.isEmpty() && scheduleGroup.state == ScheduleGroupState.NO_MORE_SPLITS) {
+                noMoreSplitsNotification = ImmutableMap.of(scheduleGroup.node, driverGroupId);
+                scheduleGroup.state = ScheduleGroupState.DONE;
             }
 
             // assign the splits with successful placements
             // TODO! notify the task that a particular driver is done
             // TODO! assert that (in assignSplits) only 1 node is assigned (assuming driver group scheduling)
-            Set<RemoteTask> newTasks = assignSplits(splitAssignment);
+            Set<RemoteTask> newTasks = assignSplits(splitAssignment, noMoreSplitsNotification);
             overallNewTasks.addAll(newTasks);
         }
 
@@ -236,20 +242,31 @@ public class SourcePartitionedScheduler
                 splitSource.getConnectorId(),
                 splitSource.getTransactionHandle(),
                 new EmptySplit(splitSource.getConnectorId()));
-        Set<RemoteTask> emptyTask = assignSplits(ImmutableMultimap.of(node, emptySplit));
+        Set<RemoteTask> emptyTask = assignSplits(ImmutableMultimap.of(node, emptySplit), ImmutableMap.of());
         return new ScheduleResult(false, emptyTask, 1);
     }
 
-    private Set<RemoteTask> assignSplits(Multimap<Node, Split> splitAssignment)
+    private Set<RemoteTask> assignSplits(Multimap<Node, Split> splitAssignment, Map<Node, OptionalInt> noMoreSplitsNotification)
     {
         ImmutableSet.Builder<RemoteTask> newTasks = ImmutableSet.builder();
-        for (Entry<Node, Collection<Split>> taskSplits : splitAssignment.asMap().entrySet()) {
+
+        ImmutableSet<Node> nodes = ImmutableSet.<Node>builder()
+                .addAll(splitAssignment.keySet())
+                .addAll(noMoreSplitsNotification.keySet())
+                .build();
+        for (Node node : nodes) {
             // source partitioned tasks can only receive broadcast data; otherwise it would have a different distribution
+            ImmutableMultimap<PlanNodeId, Split> splits = ImmutableMultimap.<PlanNodeId, Split>builder()
+                    .putAll(partitionedNode, splitAssignment.get(node))
+                    .build();
+            ImmutableMap.Builder<PlanNodeId, OptionalInt> noMoreSplits = ImmutableMap.builder();
+            if (noMoreSplitsNotification.containsKey(node)) {
+                noMoreSplits.put(partitionedNode, noMoreSplitsNotification.get(node));
+            }
             newTasks.addAll(stage.scheduleSplits(
-                    taskSplits.getKey(),
-                    ImmutableMultimap.<PlanNodeId, Split>builder()
-                            .putAll(partitionedNode, taskSplits.getValue())
-                            .build()));
+                    node,
+                    splits,
+                    noMoreSplits.build()));
         }
         return newTasks.build();
     }
@@ -266,7 +283,7 @@ public class SourcePartitionedScheduler
         Set<Node> scheduledNodes = stage.getScheduledNodes();
         Set<RemoteTask> newTasks = splitPlacementPolicy.allNodes().stream()
                 .filter(node -> !scheduledNodes.contains(node))
-                .flatMap(node -> stage.scheduleSplits(node, ImmutableMultimap.of()).stream())
+                .flatMap(node -> stage.scheduleSplits(node, ImmutableMultimap.of(), ImmutableMap.of()).stream())
                 .collect(toImmutableSet());
 
         // notify listeners that we have scheduled all tasks so they can set no more buffers or exchange splits
@@ -295,13 +312,20 @@ public class SourcePartitionedScheduler
     {
         // TODO! this field is unused
         public final OptionalInt driverGroupId;
+        public Node node = null;
         public ListenableFuture<SplitBatch> batchFuture = null;
         public Set<Split> pendingSplits = new HashSet<>();
-        public boolean noMoreSplits = false;
+        public ScheduleGroupState state = ScheduleGroupState.INITIAL;
 
         public ScheduleGroup(OptionalInt driverGroupId)
         {
             this.driverGroupId = driverGroupId;
         }
+    }
+
+    private enum ScheduleGroupState {
+        INITIAL,
+        NO_MORE_SPLITS, // no more splits will be added to pendingSplits set
+        DONE // notified worker that it has received all splits
     }
 }

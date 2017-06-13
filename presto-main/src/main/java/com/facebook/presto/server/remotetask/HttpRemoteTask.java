@@ -342,6 +342,14 @@ public final class HttpRemoteTask
     }
 
     @Override
+    public synchronized void noMoreSplits(PlanNodeId sourceId, OptionalInt driverGroupId)
+    {
+        pendingNoMoreSplitsForDriverGroup.put(sourceId, driverGroupId);
+        needsUpdate.set(true);
+        scheduleUpdate();
+    }
+
+    @Override
     public synchronized void setOutputBuffers(OutputBuffers newOutputBuffers)
     {
         if (getTaskStatus().getState().isDone()) {
@@ -429,6 +437,11 @@ public final class HttpRemoteTask
                     removed++;
                 }
             }
+            for (OptionalInt driverGroupId : source.getNoMoreSplitsForDriverGroup()) {
+                if (pendingNoMoreSplitsForDriverGroup.remove(planNodeId, driverGroupId)) {
+                    // TODO! do nothing (remove this line)
+                }
+            }
             if (planFragment.isPartitionedSources(planNodeId)) {
                 pendingSourceSplitCount -= removed;
             }
@@ -483,7 +496,8 @@ public final class HttpRemoteTask
         if (sendPlan.get()) {
             fragment = Optional.of(planFragment);
         }
-        TaskUpdateRequest updateRequest = new TaskUpdateRequest(session.toSessionRepresentation(),
+        TaskUpdateRequest updateRequest = new TaskUpdateRequest(
+                session.toSessionRepresentation(),
                 fragment,
                 sources,
                 outputBuffers.get());
@@ -522,9 +536,10 @@ public final class HttpRemoteTask
     {
         Set<ScheduledSplit> splits = pendingSplits.get(planNodeId);
         boolean noMoreSplits = this.noMoreSplits.contains(planNodeId);
+        Set<OptionalInt> noMoreSplitsForDriverGroup = pendingNoMoreSplitsForDriverGroup.get(planNodeId);
         TaskSource element = null;
         if (!splits.isEmpty() || noMoreSplits) {
-            element = new TaskSource(planNodeId, splits, noMoreSplits);
+            element = new TaskSource(planNodeId, splits, noMoreSplitsForDriverGroup, noMoreSplits);
         }
         return element;
     }
