@@ -24,6 +24,7 @@ import com.facebook.presto.sql.planner.plan.PlanNodeId;
 import com.google.common.util.concurrent.ListenableFuture;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
@@ -107,14 +108,19 @@ public class LocalExchangeSourceOperator
     public void finish()
     {
         source.finish();
-
-        System.out.println(String.format("Finishing Operator: %s", this));
     }
 
+    private AtomicBoolean debugTemp = new AtomicBoolean(false);
     @Override
     public boolean isFinished()
     {
-        return source.isFinished();
+        boolean finished = source.isFinished();
+        if (finished) {
+            if (debugTemp.compareAndSet(false, true)) {
+                System.out.println(String.format("HJIN5 Finishing Operator: %s", this));
+            }
+        }
+        return finished;
     }
 
     @Override

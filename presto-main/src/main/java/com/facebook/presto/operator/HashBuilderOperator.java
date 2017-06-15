@@ -187,7 +187,7 @@ public class HashBuilderOperator
         }
         finishing = true;
 
-        System.out.println(String.format("Finishing Operator: %s", this));
+        System.out.println(String.format("HJIN5 Finishing Operator: %s", this));
 
         LookupSourceSupplier partition = index.createLookupSourceSupplier(operatorContext.getSession(), hashChannels, preComputedHashChannel, filterFunctionFactory, Optional.of(outputChannels));
         lookupSourceFactory.setPartitionLookupSourceSupplier(partitionIndex, partition);

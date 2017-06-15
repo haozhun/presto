@@ -125,7 +125,7 @@ public class LocalExchangeSinkOperator
     {
         sink.finish();
 
-        System.out.println(String.format("Finishing Operator: %s", this));
+        System.out.println(String.format("HJIN5 Finishing Operator: %s", this));
     }
 
     @Override
