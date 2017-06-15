@@ -27,6 +27,7 @@ import com.facebook.presto.sql.planner.plan.PlanNodeId;
 import com.google.common.util.concurrent.ListenableFuture;
 
 import java.util.List;
+import java.util.OptionalInt;
 import java.util.function.Function;
 
 import static com.google.common.base.Preconditions.checkState;
@@ -82,6 +83,13 @@ public class LocalExchangeSinkOperator
                 closed = true;
                 localExchangeFactory.closeSinks(sinkFactoryId);
             }
+        }
+
+        @Override
+        public void noMoreOperator(OptionalInt driverGroupId)
+        {
+            System.out.println(String.format("HJIN5: Operator Factory closed: %s %s", driverGroupId, this));
+            localExchangeFactory.getLocalExchange(driverGroupId).getSinkFactory(sinkFactoryId).close();
         }
 
         @Override
