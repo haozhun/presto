@@ -108,6 +108,13 @@ public class DriverFactory
         return new Driver(driverContext, operators.build());
     }
 
+    public synchronized void noMoreDriver(OptionalInt driverGroupId)
+    {
+        for (OperatorFactory operatorFactory : operatorFactories) {
+            operatorFactory.noMoreOperator(driverGroupId);
+        }
+    }
+
     public synchronized void close()
     {
         if (!closed) {

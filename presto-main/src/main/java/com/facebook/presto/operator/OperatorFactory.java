@@ -16,6 +16,7 @@ package com.facebook.presto.operator;
 import com.facebook.presto.spi.type.Type;
 
 import java.util.List;
+import java.util.OptionalInt;
 
 public interface OperatorFactory
 {
@@ -26,9 +27,9 @@ public interface OperatorFactory
     // TODO: remove method, remove extends Closeable
     void close();
 
-    default void noMoreOperator(DriverContext driverContext)
+    default void noMoreOperator(OptionalInt driverGroupId)
     {
-        close();
+        // TODO!
     }
 
     OperatorFactory duplicate();

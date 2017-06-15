@@ -90,9 +90,15 @@ public class TaskSource
                     .addAll(splits)
                     .addAll(source.getSplits())
                     .build();
+            Set<OptionalInt> newNoMoreSplitsForDriverGroup = ImmutableSet.<OptionalInt>builder()
+                    .addAll(noMoreSplitsForDriverGroup)
+                    .addAll(source.getNoMoreSplitsForDriverGroup())
+                    .build();
 
-            return new TaskSource(planNodeId,
+            return new TaskSource(
+                    planNodeId,
                     newSplits,
+                    newNoMoreSplitsForDriverGroup,
                     source.isNoMoreSplits());
         }
         else {

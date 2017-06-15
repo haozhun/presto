@@ -326,6 +326,7 @@ public class SqlTaskExecution
                         source.getSplits().stream()
                                 .filter(scheduledSplit -> scheduledSplit.getSequenceId() > currentMaxAcknowledgedSplit)
                                 .collect(Collectors.toSet()),
+                        source.getNoMoreSplitsForDriverGroup(), // TODO! prune this?
                         source.isNoMoreSplits()))
                 .collect(toList());
 
@@ -373,6 +374,9 @@ public class SqlTaskExecution
             runners.add(partitionedDriverFactory.createDriverRunner(scheduledSplit, true, driverGroupId));
         }
         // END INTERESTING
+
+        Set<OptionalInt> noMoreSplitsForDriverGroup = sourceUpdate.getNoMoreSplitsForDriverGroup();
+        partitionedDriverFactory.noMoreSplitsForDriver(noMoreSplitsForDriverGroup);
 
         enqueueDrivers(false, runners.build());
         if (sourceUpdate.isNoMoreSplits()) {
@@ -573,7 +577,8 @@ public class SqlTaskExecution
         private final DriverFactory driverFactory;
         private final PipelineContext pipelineContext;
 
-        private final AtomicInteger pendingCreation = new AtomicInteger();
+        private final AtomicInteger overallPendingCreation = new AtomicInteger();
+        private final ConcurrentHashMap<OptionalInt, DriverGroupStatus> driverGroupStatus = new ConcurrentHashMap<>();
         private final AtomicBoolean noMoreSplits = new AtomicBoolean();
 
         private DriverSplitRunnerFactory(DriverFactory driverFactory)
@@ -584,6 +589,8 @@ public class SqlTaskExecution
 
         private DriverSplitRunner createDriverRunner(@Nullable ScheduledSplit partitionedSplit, boolean partitioned, OptionalInt driverGroupId)
         {
+            AtomicInteger pendingCreation = driverGroupStatus.computeIfAbsent(driverGroupId, ignored -> new DriverGroupStatus()).getPendingCreation();
+            overallPendingCreation.incrementAndGet();
             pendingCreation.incrementAndGet();
             // create driver context immediately so the driver existence is recorded in the stats
             // the number of drivers is used to balance work across nodes
@@ -601,6 +608,7 @@ public class SqlTaskExecution
 
             if (partitionedSplit != null) {
                 // TableScanOperator requires partitioned split to be added before the first call to process
+                // TODO! this should not use TaskSource
                 driver.updateSource(new TaskSource(partitionedSplit.getPlanNodeId(), ImmutableSet.of(partitionedSplit), true));
             }
 
@@ -609,10 +617,26 @@ public class SqlTaskExecution
                 driver.updateSource(source);
             }
 
+            AtomicInteger pendingCreation = driverGroupStatus.get(driverContext.getDriverGroup()).getPendingCreation();
             pendingCreation.decrementAndGet();
+            overallPendingCreation.decrementAndGet();
             closeDriverFactoryIfFullyCreated();
 
             return driver;
+        }
+
+        private void noMoreSplitsForDriver(Iterable<OptionalInt> driverGroups)
+        {
+            boolean changed = false;
+            for (OptionalInt driverGroupId : driverGroups) {
+                AtomicBoolean noMoreSplitsForDriverGroup = driverGroupStatus.computeIfAbsent(driverGroupId, ignored -> new DriverGroupStatus()).getNoMoreSplits();
+                if (noMoreSplitsForDriverGroup.compareAndSet(false, true)) {
+                    changed = true;
+                }
+            }
+            if (changed) {
+                closeDriverFactoryIfFullyCreated();
+            }
         }
 
         private boolean isNoMoreSplits()
@@ -628,7 +652,20 @@ public class SqlTaskExecution
 
         private void closeDriverFactoryIfFullyCreated()
         {
-            if (isNoMoreSplits() && pendingCreation.get() <= 0) {
+            for (Entry<OptionalInt, DriverGroupStatus> entry : driverGroupStatus.entrySet()) {
+                OptionalInt driverGroupId = entry.getKey();
+                AtomicInteger pendingCreation = entry.getValue().getPendingCreation();
+                AtomicBoolean noMoreSplits = entry.getValue().getNoMoreSplits();
+                // isNoMoreSplits must be tested before pendingCreation
+                if (noMoreSplits.get() && pendingCreation.get() == 0) {
+                    driverFactory.noMoreDriver(driverGroupId);
+                }
+            }
+
+            if (!isNoMoreSplits()) {
+                return;
+            }
+            if (overallPendingCreation.get() <= 0) {
                 driverFactory.close();
             }
         }
@@ -641,6 +678,22 @@ public class SqlTaskExecution
         public OptionalInt getDriverInstances()
         {
             return driverFactory.getDriverInstances();
+        }
+    }
+
+    private static class DriverGroupStatus
+    {
+        public final AtomicInteger pendingCreation = new AtomicInteger();
+        public final AtomicBoolean noMoreSplits = new AtomicBoolean();
+
+        public AtomicInteger getPendingCreation()
+        {
+            return pendingCreation;
+        }
+
+        public AtomicBoolean getNoMoreSplits()
+        {
+            return noMoreSplits;
         }
     }
 

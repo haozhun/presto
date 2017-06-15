@@ -150,7 +150,7 @@ public class LookupJoinOperatorFactory
     }
 
     @Override
-    public void noMoreOperator(DriverContext driverContext)
+    public void noMoreOperator(OptionalInt driverGroupId)
     {
         // TODO! make it possible to release hash build when a driver group completes (instead of when everything finishes)
         //x.getProbeReferenceCount(driverContext.getDriverGroup()).release();
