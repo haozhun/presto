@@ -48,15 +48,15 @@ import javax.annotation.Nullable;
 import javax.annotation.concurrent.GuardedBy;
 
 import java.lang.ref.WeakReference;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.OptionalInt;
-import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -65,13 +65,18 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static com.facebook.presto.SystemSessionProperties.getInitialSplitsPerNode;
 import static com.facebook.presto.SystemSessionProperties.getSplitConcurrencyAdjustmentInterval;
+import static com.facebook.presto.execution.SqlTaskExecution.SplitsState.DONE;
+import static com.facebook.presto.execution.SqlTaskExecution.SplitsState.INITIAL;
+import static com.facebook.presto.execution.SqlTaskExecution.SplitsState.NO_MORE_SPLITS;
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
+import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toList;
 
@@ -104,10 +109,14 @@ public class SqlTaskExecution
     private long maxAcknowledgedSplit = Long.MIN_VALUE;
 
     private final Map<PlanNodeId, DriverSplitRunnerFactory> partitionedDriverFactories;
+
+    private final List<PlanNodeId> sourceStartOrder;
+
     @GuardedBy("this")
-    private final Queue<PlanNodeId> sourceStartOrder;
+    private final SchedulingDriverGroups schedulingDriverGroups;
+
     @GuardedBy("this")
-    private final ConcurrentMap<PlanNodeId, TaskSource> pendingSplits = new ConcurrentHashMap<>();
+    private final Map<PlanNodeId, SplitsForPlanNode> pendingSplitsMap;
 
     private final List<DriverSplitRunnerFactory> unpartitionedDriverFactories;
 
@@ -171,9 +180,9 @@ public class SqlTaskExecution
                         outputBuffer);
                 driverFactories = localExecutionPlan.getDriverFactories();
 
-                if (taskId.getStageId().getId() == 1 && taskId.getId() == 0) {
+                if (taskId.getId() == 0) {
                     StringBuilder sb = new StringBuilder();
-                    sb.append("Pipelines:\n");
+                    sb.append("Pipelines for Stage ").append(taskId.getStageId().getId()).append(":\n");
                     for (DriverFactory driverFactory : driverFactories) {
                         sb.append("  Pipeline ").append(driverFactory.getPipelineId()).append(":");
                         sb.append("  ").append(driverFactory.getExecutionFlowStrategy());
@@ -193,11 +202,13 @@ public class SqlTaskExecution
 
             // index driver factories
             ImmutableMap.Builder<PlanNodeId, DriverSplitRunnerFactory> partitionedDriverFactories = ImmutableMap.builder();
+            ImmutableMap.Builder<PlanNodeId, SplitsForPlanNode> pendingSplitsMap = ImmutableMap.builder();
             ImmutableList.Builder<DriverSplitRunnerFactory> unpartitionedDriverFactories = ImmutableList.builder();
             for (DriverFactory driverFactory : driverFactories) {
                 Optional<PlanNodeId> sourceId = driverFactory.getSourceId();
                 if (sourceId.isPresent() && fragment.isPartitionedSources(sourceId.get())) {
                     partitionedDriverFactories.put(sourceId.get(), new DriverSplitRunnerFactory(driverFactory));
+                    pendingSplitsMap.put(sourceId.get(), new SplitsForPlanNode());
                 }
                 else {
                     OperatorFactory firstOperatorFactory = driverFactory.getOperatorFactories().get(0);
@@ -208,7 +219,7 @@ public class SqlTaskExecution
                             @Override
                             public void accept(OptionalInt optionalInt)
                             {
-                                System.out.println(String.format("Callback for RowGroup %s", optionalInt));
+                                System.out.println(format("Callback for RowGroup %s", optionalInt));
                                 List<DriverSplitRunner> runners = new ArrayList<>();
                                 for (int i = 0; i < driverFactory.getDriverInstances().orElse(1); i++) {
                                     runners.add(driverSplitRunnerFactory.createDriverRunner(null, false, optionalInt));
@@ -225,7 +236,10 @@ public class SqlTaskExecution
             }
             this.partitionedDriverFactories = partitionedDriverFactories.build();
             this.unpartitionedDriverFactories = unpartitionedDriverFactories.build();
-            this.sourceStartOrder = new ArrayDeque<>(fragment.getPartitionedSources());
+            this.pendingSplitsMap = pendingSplitsMap.build();
+            this.sourceStartOrder = ImmutableList.copyOf(fragment.getPartitionedSources());
+            this.schedulingDriverGroups = new SchedulingDriverGroups(this.partitionedDriverFactories, this.sourceStartOrder);
+            System.out.println(String.format("HJIN6: taskId %s.%s partitioned %s unpartitioned %s pendingSplitsMap %s sourceStartOrder %s", taskId.getStageId().getId(), taskId.getId(), this.partitionedDriverFactories.size(), this.unpartitionedDriverFactories.size(), this.pendingSplitsMap.size(), this.sourceStartOrder));
 
             checkArgument(this.partitionedDriverFactories.keySet().equals(ImmutableSet.copyOf(fragment.getPartitionedSources())),
                     "Fragment us partitioned, but all partitioned drivers were not found");
@@ -349,19 +363,15 @@ public class SqlTaskExecution
         return updatedUnpartitionedSources;
     }
 
-    private synchronized void schedulePartitionedSource(TaskSource sourceUpdate)
+    @GuardedBy("this")
+    private void mergeIntoPendingSplits(PlanNodeId planNodeId, Set<ScheduledSplit> scheduledSplits, Set<OptionalInt> noMoreSplitsForDriverGroup, boolean noMoreSplits)
     {
-        // if this is not for the currently scheduling source node, save off the splits for
-        // when the source node is scheduled
-        if (!isSchedulingSource(sourceUpdate.getPlanNodeId())) {
-            pendingSplits.merge(sourceUpdate.getPlanNodeId(), sourceUpdate, TaskSource::update);
-            return;
-        }
+        checkHoldsLock();
 
-        // INTERESTING
-        DriverSplitRunnerFactory partitionedDriverFactory = partitionedDriverFactories.get(sourceUpdate.getPlanNodeId());
-        ImmutableList.Builder<DriverSplitRunner> runners = ImmutableList.builder();
-        for (ScheduledSplit scheduledSplit : sourceUpdate.getSplits()) {
+        DriverSplitRunnerFactory partitionedDriverFactory = partitionedDriverFactories.get(planNodeId);
+        SplitsForPlanNode pendingSplitsForPlanNode = pendingSplitsMap.get(planNodeId);
+
+        for (ScheduledSplit scheduledSplit : scheduledSplits) {
             OptionalInt driverGroupId;
             if (partitionedDriverFactory.getExecutionFlowStrategy() == ExecutionFlowStrategy.PER_BUCKET) {
                 driverGroupId = scheduledSplit.getSplit().getConnectorSplit().getDriverGroupId();
@@ -369,33 +379,246 @@ public class SqlTaskExecution
             else {
                 driverGroupId = OptionalInt.empty();
             }
-
-            // create a new driver for the split
-            runners.add(partitionedDriverFactory.createDriverRunner(scheduledSplit, true, driverGroupId));
+            pendingSplitsForPlanNode.getDriverGroup(driverGroupId).addSplit(scheduledSplit);
+            schedulingDriverGroups.addDriverGroupIfAbsent(driverGroupId);
         }
-        // END INTERESTING
+        for (OptionalInt driverGroupWithNoMoreSplits : noMoreSplitsForDriverGroup) {
+            SplitsForDriverGroup pendingSplitsForDriverGroup = pendingSplitsForPlanNode.getDriverGroup(driverGroupWithNoMoreSplits);
+            if (pendingSplitsForDriverGroup.getState() == INITIAL) {
+                pendingSplitsForDriverGroup.setState(NO_MORE_SPLITS);
+            }
+        }
+        if (noMoreSplits) {
+            pendingSplitsForPlanNode.setNoMoreSplits(true);
+        }
+    }
 
-        Set<OptionalInt> noMoreSplitsForDriverGroup = sourceUpdate.getNoMoreSplitsForDriverGroup();
-        partitionedDriverFactory.noMoreSplitsForDriver(noMoreSplitsForDriverGroup);
+    class SplitsForPlanNode
+    {
+        private final Map<OptionalInt, SplitsForDriverGroup> map = new HashMap<>();
+        private boolean noMoreSplits;
 
-        enqueueDrivers(false, runners.build());
-        if (sourceUpdate.isNoMoreSplits()) {
-            partitionedDriverFactory.setNoMoreSplits();
-            sourceStartOrder.remove(sourceUpdate.getPlanNodeId());
+        public SplitsForDriverGroup getDriverGroup(OptionalInt driverGroupId)
+        {
+            return map.computeIfAbsent(driverGroupId, ignored -> new SplitsForDriverGroup());
+        }
 
-            // schedule next source node
-            if (!sourceStartOrder.isEmpty()) {
-                TaskSource nextSource = pendingSplits.get(sourceStartOrder.peek());
-                if (nextSource != null) {
-                    schedulePartitionedSource(nextSource);
+        public boolean isNoMoreSplits()
+        {
+            return noMoreSplits;
+        }
+
+        public void setNoMoreSplits(boolean noMoreSplits)
+        {
+            this.noMoreSplits = noMoreSplits;
+        }
+    }
+
+    class SplitsForDriverGroup
+    {
+        private Set<ScheduledSplit> splits = new HashSet<>();
+        private SplitsState state = INITIAL;
+
+        public SplitsState getState()
+        {
+            return state;
+        }
+
+        public void setState(SplitsState state)
+        {
+            this.state = requireNonNull(state, "state is null");
+        }
+
+        public void addSplit(ScheduledSplit scheduledSplit)
+        {
+            splits.add(scheduledSplit);
+        }
+
+        public Set<ScheduledSplit> removeAllSplits()
+        {
+            Set<ScheduledSplit> result = splits;
+            splits = new HashSet<>();
+            return result;
+        }
+    }
+
+    enum SplitsState
+    {
+        INITIAL,
+        NO_MORE_SPLITS,
+        DONE
+    }
+
+    private /*static*/ class SchedulingDriverGroups
+            implements Iterable<SchedulingDriverGroup>
+    {
+        private final Map<PlanNodeId, DriverSplitRunnerFactory> partitionedDriverFactories;
+        private final List<PlanNodeId> sourceStartOrder;
+
+        private final Map<OptionalInt, SchedulingDriverGroup> driverGroups = new HashMap<>();
+        private final Map<PlanNodeId, AtomicInteger> finishedDriverGroupCount;
+        private int driverGroupCount;
+        private boolean noMoreDriverGroups;
+
+        public SchedulingDriverGroups(Map<PlanNodeId, DriverSplitRunnerFactory> partitionedDriverFactories, List<PlanNodeId> sourceStartOrder)
+        {
+            this.partitionedDriverFactories = partitionedDriverFactories;
+            this.sourceStartOrder = sourceStartOrder;
+
+            this.finishedDriverGroupCount = sourceStartOrder.stream()
+                    .collect(Collectors.toMap(Function.identity(), ignored -> new AtomicInteger()));
+        }
+
+        public void noMoreDriverGroups()
+        {
+            if (noMoreDriverGroups) {
+                return;
+            }
+
+            System.out.println(String.format("HJIN5 Finishing SchedulingDriverGroups: Task %s.%s", taskContext.getTaskId().getStageId().getId(), taskContext.getTaskId().getId()));
+            noMoreDriverGroups = true;
+
+            for (Entry<PlanNodeId, AtomicInteger> entry : finishedDriverGroupCount.entrySet()) {
+                PlanNodeId planNodeId = entry.getKey();
+                AtomicInteger count = entry.getValue();
+                if (count.get() == driverGroupCount) {
+                    partitionedDriverFactories.get(planNodeId).setNoMoreSplits();
                 }
+            }
+        }
+
+        public void addDriverGroupIfAbsent(OptionalInt driverGroupId)
+        {
+            if (driverGroups.containsKey(driverGroupId)) {
+                return;
+            }
+            driverGroupCount++;
+            driverGroups.put(driverGroupId, new SchedulingDriverGroup(
+                    driverGroupId,
+                    sourceStartOrder,
+                    planNodeId -> {
+                        AtomicInteger count = finishedDriverGroupCount.get(planNodeId);
+                        if (count.incrementAndGet() == driverGroupCount && noMoreDriverGroups) {
+                            System.out.println(String.format("HJIN5 Calling PartitionedDriverFactory.Finish: Task %s.%s PlanNode %s", taskContext.getTaskId().getStageId().getId(), taskContext.getTaskId().getId(), planNodeId));
+                            partitionedDriverFactories.get(planNodeId).setNoMoreSplits();
+                        }
+                    }));
+        }
+
+        public void removeCompletelyScheduled()
+        {
+            driverGroups.values().removeIf(SchedulingDriverGroup::isDone);
+        }
+
+        @Override
+        public Iterator<SchedulingDriverGroup> iterator()
+        {
+            return driverGroups.values().iterator();
+        }
+    }
+
+    private static class SchedulingDriverGroup
+    {
+        private final OptionalInt driverGroupId;
+        private final List<PlanNodeId> planNodeSchedulingOrder;
+        private final Consumer<PlanNodeId> completeListener;
+        private int schedulingPlanNodeOrdinal;
+
+        public SchedulingDriverGroup(OptionalInt driverGroupId, List<PlanNodeId> planNodeSchedulingOrder, Consumer<PlanNodeId> completeListener)
+        {
+            this.driverGroupId = driverGroupId;
+            this.planNodeSchedulingOrder = planNodeSchedulingOrder;
+            this.completeListener = completeListener;
+        }
+
+        public OptionalInt getDriverGroupId()
+        {
+            return driverGroupId;
+        }
+
+        public PlanNodeId getSchedulingPlanNode()
+        {
+            checkState(!isDone());
+            return planNodeSchedulingOrder.get(schedulingPlanNodeOrdinal);
+        }
+
+        public void nextPlanNode()
+        {
+            checkState(!isDone());
+            completeListener.accept(getSchedulingPlanNode());
+            schedulingPlanNodeOrdinal++;
+        }
+
+        public boolean isDone()
+        {
+            return schedulingPlanNodeOrdinal >= planNodeSchedulingOrder.size();
+        }
+
+        // TODO! remmove (unused)
+        public void advancePast(PlanNodeId planNodeId)
+        {
+            int i = 0;
+            while (true) {
+                if (planNodeSchedulingOrder.get(i).equals(planNodeId)) {
+                    break;
+                }
+                i++;
+            }
+            while (i <= schedulingPlanNodeOrdinal) {
+                nextPlanNode();
             }
         }
     }
 
-    private synchronized boolean isSchedulingSource(PlanNodeId sourceId)
+    private synchronized void schedulePartitionedSource(TaskSource sourceUpdate)
     {
-        return !sourceStartOrder.isEmpty() && sourceStartOrder.peek().equals(sourceId);
+        mergeIntoPendingSplits(sourceUpdate.getPlanNodeId(), sourceUpdate.getSplits(), sourceUpdate.getNoMoreSplitsForDriverGroup(), sourceUpdate.isNoMoreSplits());
+
+        ImmutableList.Builder<DriverSplitRunner> runners = ImmutableList.builder();
+
+        for (SchedulingDriverGroup schedulingDriverGroup : schedulingDriverGroups) {
+            OptionalInt driverGroupId = schedulingDriverGroup.getDriverGroupId();
+
+            // Schedule the currently scheduling plan node for each driver group.
+
+            // For a particular driver group, if the currently scheduling plan node does not match sourceUpdate.getPlanNodeId(), this would be a no-op,
+            // unless its preceding plan node(s) happens to finish scheduling due to the new splits in sourceUpdate, directly or by cascading.
+            while (true) {
+                PlanNodeId schedulingPlanNode = schedulingDriverGroup.getSchedulingPlanNode();
+                DriverSplitRunnerFactory partitionedDriverFactory = partitionedDriverFactories.get(schedulingPlanNode);
+                SplitsForPlanNode splitsForPlanNode = pendingSplitsMap.get(schedulingPlanNode);
+                SplitsForDriverGroup splitsForDriverGroup = splitsForPlanNode.getDriverGroup(driverGroupId);
+
+                System.out.println(String.format("HJIN8: processing TaskSource update: Task %s.%s DriverGroup %s Pipeline %s PlanNode %s", taskId.getStageId().getId(), taskId.getId(), driverGroupId, partitionedDriverFactory.pipelineContext.getPipelineId(), schedulingPlanNode));
+
+                for (ScheduledSplit scheduledSplit : splitsForDriverGroup.removeAllSplits()) {
+                    // create a new driver for the split
+                    runners.add(partitionedDriverFactory.createDriverRunner(scheduledSplit, true, driverGroupId));
+                }
+                if (!splitsForPlanNode.isNoMoreSplits() && splitsForDriverGroup.getState() != NO_MORE_SPLITS) {
+                    break;
+                }
+                if (splitsForPlanNode.isNoMoreSplits() && splitsForDriverGroup.getState() == NO_MORE_SPLITS) {
+                    // TODO! should this ever happen?
+                }
+                partitionedDriverFactory.noMoreSplitsForDriver(ImmutableList.of(driverGroupId));
+                splitsForDriverGroup.setState(DONE);
+
+                schedulingDriverGroup.nextPlanNode();
+                if (schedulingDriverGroup.isDone()) {
+                    break;
+                }
+            }
+        }
+        schedulingDriverGroups.removeCompletelyScheduled();
+
+        enqueueDrivers(false, runners.build());
+
+        // TODO! This seems wrong? This indicates that there are no more driver groups for a particular plan node, not globally
+        if (sourceUpdate.isNoMoreSplits()) {
+            System.out.println("HJIN5: WARNING! suspicious line of code HIT");
+            schedulingDriverGroups.noMoreDriverGroups();
+        }
     }
 
     private synchronized void scheduleUnpartitionedSource(TaskSource sourceUpdate, Map<PlanNodeId, TaskSource> updatedUnpartitionedSources)
@@ -420,7 +643,7 @@ public class SqlTaskExecution
     private static class RemainingDrivers
     {
         // TODO! next step: partitioned driver factory should be bucket aware
-        private Map<OptionalInt, Integer> perDriverGroup = new HashMap<>();
+        private final Map<OptionalInt, Integer> perDriverGroup = new HashMap<>();
         private int overall;
 
         public synchronized void increment(OptionalInt driverGroup)
@@ -629,6 +852,7 @@ public class SqlTaskExecution
         {
             boolean changed = false;
             for (OptionalInt driverGroupId : driverGroups) {
+                System.out.println(String.format("HJIN5 NoMoreSplitsForDG DriverFactory: Task %s.%s Pipeline %s DriverGroup %s", taskContext.getTaskId().getStageId().getId(), taskContext.getTaskId().getId(), pipelineContext.getPipelineId(), driverGroupId));
                 AtomicBoolean noMoreSplitsForDriverGroup = driverGroupStatus.computeIfAbsent(driverGroupId, ignored -> new DriverGroupStatus()).getNoMoreSplits();
                 if (noMoreSplitsForDriverGroup.compareAndSet(false, true)) {
                     changed = true;
@@ -646,7 +870,7 @@ public class SqlTaskExecution
 
         private void setNoMoreSplits()
         {
-            System.out.println(String.format("HJIN5 Finishing DriverFactory: Task %s.%s Pipeline %s", taskContext.getTaskId().getStageId().getId(), taskContext.getTaskId().getId(), pipelineContext.getPipelineId()));
+            System.out.println(String.format("HJIN5 NoMoreSplits DriverFactory: Task %s.%s Pipeline %s", taskContext.getTaskId().getStageId().getId(), taskContext.getTaskId().getId(), pipelineContext.getPipelineId()));
             noMoreSplits.set(true);
             closeDriverFactoryIfFullyCreated();
         }
@@ -831,6 +1055,16 @@ public class SqlTaskExecution
                     sqlTaskExecution.checkTaskCompletion();
                 }
             }
+        }
+    }
+
+    private void checkHoldsLock()
+    {
+        // This method serves a similar purpose at runtime as GuardedBy on method serves during static analysis.
+        // This method should not have significant performance impact. If it does, it may be reasonably to remove this method.
+        // This intentionally does not use checkState.
+        if (!Thread.holdsLock(this)) {
+            throw new IllegalStateException(format("Thread must hold a lock on the %s", getClass().getSimpleName()));
         }
     }
 }
