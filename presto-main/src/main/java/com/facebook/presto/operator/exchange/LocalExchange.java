@@ -276,6 +276,8 @@ public class LocalExchange
         private final int bufferCount;
 
         private boolean noMoreSinkFactories;
+        // The number of total sink factories are tracked at planning time
+        // so that the exact number of sink factory is known by the time execution starts.
         private int numSinkFactories;
 
         private ConcurrentMap<OptionalInt, LocalExchange> localExchangeMap = new ConcurrentHashMap<>();

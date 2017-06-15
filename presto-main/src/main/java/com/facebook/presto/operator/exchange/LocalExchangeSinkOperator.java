@@ -41,6 +41,8 @@ public class LocalExchangeSinkOperator
         private final LocalExchangeFactory localExchangeFactory;
 
         private final int operatorId;
+        // There will be a LocalExchangeSinkFactory per LocalExchangeSinkOperatorFactory per Driver Group.
+        // A LocalExchangeSinkOperatorFactory needs to have access to LocalExchangeSinkFactories for each Driver Group.
         private final LocalExchangeSinkFactoryId sinkFactoryId;
         private final PlanNodeId planNodeId;
         private final Function<Page, Page> pagePreprocessor;
