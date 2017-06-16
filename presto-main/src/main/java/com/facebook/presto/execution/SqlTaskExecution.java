@@ -646,6 +646,7 @@ public class SqlTaskExecution
 
         private void setNoMoreSplits()
         {
+            System.out.println(String.format("HJIN5 Finishing DriverFactory: Task %s.%s Pipeline %s", taskContext.getTaskId().getStageId().getId(), taskContext.getTaskId().getId(), pipelineContext.getPipelineId()));
             noMoreSplits.set(true);
             closeDriverFactoryIfFullyCreated();
         }

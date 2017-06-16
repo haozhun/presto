@@ -114,7 +114,9 @@ public class TaskStateMachine
         requireNonNull(doneState, "doneState is null");
         checkArgument(doneState.isDone(), "doneState %s is not a done state", doneState);
 
-        taskState.setIf(doneState, currentState -> !currentState.isDone());
+        if (taskState.setIf(doneState, currentState -> !currentState.isDone())) {
+            System.out.println(String.format("HJIN5: Finishing Task %s.%s", taskId.getStageId().getId(), taskId.getId()));
+        }
     }
 
     public Duration waitForStateChange(TaskState currentState, Duration maxWait)
