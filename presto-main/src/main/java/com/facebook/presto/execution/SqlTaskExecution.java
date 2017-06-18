@@ -43,6 +43,7 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import io.airlift.concurrent.SetThreadName;
 import io.airlift.units.Duration;
+import org.eclipse.jetty.util.ConcurrentHashSet;
 
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.GuardedBy;
@@ -117,6 +118,9 @@ public class SqlTaskExecution
 
     @GuardedBy("this")
     private final Map<PlanNodeId, SplitsForPlanNode> pendingSplitsMap;
+
+    @GuardedBy("this")
+    private final Set<OptionalInt> completedDriverGroups = new ConcurrentHashSet<>();
 
     private final List<DriverSplitRunnerFactory> unpartitionedDriverFactories;
 
@@ -505,9 +509,23 @@ public class SqlTaskExecution
                     }));
         }
 
+        @GuardedBy("this") // SqlTaskExecution.this
         public void removeCompletelyScheduled()
         {
-            driverGroups.values().removeIf(SchedulingDriverGroup::isDone);
+            Iterator<SchedulingDriverGroup> iterator = driverGroups.values().iterator();
+            while (iterator.hasNext()) {
+                SchedulingDriverGroup schedulingDriverGroup = iterator.next();
+                if (schedulingDriverGroup.isDone()) {
+                    completedDriverGroups.add(schedulingDriverGroup.getDriverGroupId());
+                    System.out.println(String.format(
+                            "HJIN5: CompletedDriverGroups on Task %s.%s: %s",
+                            taskContext.getTaskId().getStageId().getId(), taskContext.getTaskId().getId(),
+                            completedDriverGroups.stream()
+                                    .map(OptionalInt::toString)
+                                    .collect(Collectors.joining(", "))));
+                    iterator.remove();
+                }
+            }
         }
 
         @Override
@@ -741,6 +759,11 @@ public class SqlTaskExecution
             }
         }
         return noMoreSplits.build();
+    }
+
+    public synchronized Set<OptionalInt> getCompletedDriverGroups()
+    {
+        return ImmutableSet.copyOf(completedDriverGroups);
     }
 
     private synchronized void checkTaskCompletion()

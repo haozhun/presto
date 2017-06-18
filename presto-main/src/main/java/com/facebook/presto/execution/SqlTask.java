@@ -41,6 +41,7 @@ import javax.annotation.Nullable;
 import java.net.URI;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -204,11 +205,14 @@ public class SqlTask
         }
 
         TaskStats taskStats = getTaskStats(taskHolder);
-        return new TaskStatus(taskStateMachine.getTaskId(),
+        Set<OptionalInt> completedDriverGroups = getCompletedDriverGroups(taskHolder);
+        return new TaskStatus(
+                taskStateMachine.getTaskId(),
                 taskInstanceId,
                 versionNumber,
                 state,
                 location,
+                completedDriverGroups,
                 failures,
                 taskStats.getQueuedPartitionedDrivers(),
                 taskStats.getRunningPartitionedDrivers(),
@@ -239,6 +243,15 @@ public class SqlTask
         SqlTaskExecution taskExecution = taskHolder.getTaskExecution();
         if (taskExecution != null) {
             return taskExecution.getNoMoreSplits();
+        }
+        return ImmutableSet.of();
+    }
+
+    private static Set<OptionalInt> getCompletedDriverGroups(TaskHolder taskHolder)
+    {
+        SqlTaskExecution taskExecution = taskHolder.getTaskExecution();
+        if (taskExecution != null) {
+            return taskExecution.getCompletedDriverGroups();
         }
         return ImmutableSet.of();
     }

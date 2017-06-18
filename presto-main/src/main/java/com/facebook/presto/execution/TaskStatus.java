@@ -16,10 +16,13 @@ package com.facebook.presto.execution;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import io.airlift.units.DataSize;
 
 import java.net.URI;
 import java.util.List;
+import java.util.OptionalInt;
+import java.util.Set;
 
 import static com.facebook.presto.execution.TaskState.PLANNED;
 import static com.google.common.base.MoreObjects.toStringHelper;
@@ -52,6 +55,7 @@ public class TaskStatus
     private final long version;
     private final TaskState state;
     private final URI self;
+    private final Set<OptionalInt> completedDriverGroups;
 
     private final int queuedPartitionedDrivers;
     private final int runningPartitionedDrivers;
@@ -65,6 +69,7 @@ public class TaskStatus
             @JsonProperty("version") long version,
             @JsonProperty("state") TaskState state,
             @JsonProperty("self") URI self,
+            @JsonProperty("completedDriverGroups") Set<OptionalInt> completedDriverGroups,
             @JsonProperty("failures") List<ExecutionFailureInfo> failures,
             @JsonProperty("queuedPartitionedDrivers") int queuedPartitionedDrivers,
             @JsonProperty("runningPartitionedDrivers") int runningPartitionedDrivers,
@@ -77,6 +82,7 @@ public class TaskStatus
         this.version = version;
         this.state = requireNonNull(state, "state is null");
         this.self = requireNonNull(self, "self is null");
+        this.completedDriverGroups = requireNonNull(completedDriverGroups, "completedDriverGroups is null");
 
         checkArgument(queuedPartitionedDrivers >= 0, "queuedPartitionedDrivers must be positive");
         this.queuedPartitionedDrivers = queuedPartitionedDrivers;
@@ -119,6 +125,12 @@ public class TaskStatus
     }
 
     @JsonProperty
+    public Set<OptionalInt> getCompletedDriverGroups()
+    {
+        return completedDriverGroups;
+    }
+
+    @JsonProperty
     public List<ExecutionFailureInfo> getFailures()
     {
         return failures;
@@ -153,7 +165,7 @@ public class TaskStatus
 
     public static TaskStatus initialTaskStatus(TaskId taskId, URI location)
     {
-        return new TaskStatus(taskId, "", MIN_VERSION, PLANNED, location, ImmutableList.of(), 0, 0, new DataSize(0, BYTE));
+        return new TaskStatus(taskId, "", MIN_VERSION, PLANNED, location, ImmutableSet.of(), ImmutableList.of(), 0, 0, new DataSize(0, BYTE));
     }
 
     public static TaskStatus failWith(TaskStatus taskStatus, TaskState state, List<ExecutionFailureInfo> exceptions)
@@ -164,6 +176,7 @@ public class TaskStatus
                 MAX_VERSION,
                 state,
                 taskStatus.getSelf(),
+                taskStatus.getCompletedDriverGroups(),
                 exceptions,
                 taskStatus.getQueuedPartitionedDrivers(),
                 taskStatus.getRunningPartitionedDrivers(),
