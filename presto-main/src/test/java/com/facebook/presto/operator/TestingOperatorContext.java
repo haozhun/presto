@@ -18,6 +18,7 @@ import com.facebook.presto.testing.TestingSession;
 import com.facebook.presto.testing.TestingTaskContext;
 import com.google.common.util.concurrent.MoreExecutors;
 
+import java.util.OptionalInt;
 import java.util.concurrent.Executor;
 
 public class TestingOperatorContext
@@ -41,7 +42,8 @@ public class TestingOperatorContext
         DriverContext driverContext = new DriverContext(
                 pipelineContext,
                 executor,
-                false
+                false,
+                OptionalInt.empty()
         );
 
         OperatorContext operatorContext = driverContext.addOperatorContext(
