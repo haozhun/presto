@@ -187,7 +187,13 @@ public class HashBuilderOperator
         }
         finishing = true;
 
-        System.out.println(String.format("HJIN5 Finishing Operator: %s", this));
+        System.out.println(String.format(
+                "HJIN5 Finishing Operator: Task %s.%s Pipeline %s DriverGroup %s   %s",
+                operatorContext.getDriverContext().getTaskId().getStageId().getId(),
+                operatorContext.getDriverContext().getTaskId().getId(),
+                operatorContext.getDriverContext().getPipelineContext().getPipelineId(),
+                operatorContext.getDriverContext().getDriverGroup(),
+                this.getOperatorContext()));
 
         LookupSourceSupplier partition = index.createLookupSourceSupplier(operatorContext.getSession(), hashChannels, preComputedHashChannel, filterFunctionFactory, Optional.of(outputChannels));
         lookupSourceFactory.setPartitionLookupSourceSupplier(partitionIndex, partition);

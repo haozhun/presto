@@ -39,7 +39,9 @@ import io.airlift.units.Duration;
 import javax.annotation.concurrent.ThreadSafe;
 
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -51,6 +53,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 import static com.facebook.presto.failureDetector.FailureDetector.State.GONE;
 import static com.facebook.presto.operator.ExchangeOperator.REMOTE_CONNECTOR_ID;
@@ -84,6 +87,8 @@ public final class SqlStageExecution
     private final Set<PlanFragmentId> completeSourceFragments = newConcurrentHashSet();
 
     private final AtomicReference<OutputBuffers> outputBuffers = new AtomicReference<>();
+
+    private final ListenerManager<Set<OptionalInt>> completedDriverGroupChangeListeners = new ListenerManager<>();
 
     public SqlStageExecution(
             StageId stageId,
@@ -140,6 +145,11 @@ public final class SqlStageExecution
     public void addStateChangeListener(StateChangeListener<StageState> stateChangeListener)
     {
         stateMachine.addStateChangeListener(stateChangeListener::stateChanged);
+    }
+
+    public void addCompletedDriverGroupChangeListener(Consumer<Set<OptionalInt>> newlyCompletedDriverGroupConsumer)
+    {
+        completedDriverGroupChangeListeners.addListener(newlyCompletedDriverGroupConsumer);
     }
 
     public PlanFragment getFragment()
@@ -387,11 +397,13 @@ public final class SqlStageExecution
             implements StateChangeListener<TaskStatus>
     {
         private long previousMemory;
+        private final Set<OptionalInt> completedDriverGroups = new HashSet<>();
 
         @Override
         public void stateChanged(TaskStatus taskStatus)
         {
             updateMemoryUsage(taskStatus);
+            updateCompletedDriverGroups(taskStatus);
 
             StageState stageState = getState();
             if (stageState.isDone()) {
@@ -433,6 +445,17 @@ public final class SqlStageExecution
             stateMachine.updateMemoryUsage(deltaMemoryInBytes);
         }
 
+        private synchronized void updateCompletedDriverGroups(TaskStatus taskStatus)
+        {
+            Set<OptionalInt> newlyCompletedDriverGroups = taskStatus.getCompletedDriverGroups();
+            newlyCompletedDriverGroups.removeAll(this.completedDriverGroups);
+            if (newlyCompletedDriverGroups.isEmpty()) {
+                return;
+            }
+            completedDriverGroups.addAll(newlyCompletedDriverGroups);
+            completedDriverGroupChangeListeners.invoke(newlyCompletedDriverGroups);
+        }
+
         private ExecutionFailureInfo rewriteTransportFailure(ExecutionFailureInfo executionFailureInfo)
         {
             if (executionFailureInfo.getRemoteHost() != null &&
@@ -450,6 +473,26 @@ public final class SqlStageExecution
             }
             else {
                 return executionFailureInfo;
+            }
+        }
+    }
+
+    private static class ListenerManager<T>
+    {
+        private List<Consumer<T>> listeners = new ArrayList<>();
+        private boolean freezed;
+
+        public synchronized void addListener(Consumer<T> listener)
+        {
+            checkState(!freezed, "Listeners have been invoked");
+            listeners.add(listener);
+        }
+
+        public synchronized void invoke(T payload)
+        {
+            freezed = true;
+            for (Consumer<T> listener : listeners) {
+                listener.accept(payload);
             }
         }
     }

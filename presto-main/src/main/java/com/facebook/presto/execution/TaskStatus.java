@@ -64,7 +64,8 @@ public class TaskStatus
     private final List<ExecutionFailureInfo> failures;
 
     @JsonCreator
-    public TaskStatus(@JsonProperty("taskId") TaskId taskId,
+    public TaskStatus(
+            @JsonProperty("taskId") TaskId taskId,
             @JsonProperty("taskInstanceId") String taskInstanceId,
             @JsonProperty("version") long version,
             @JsonProperty("state") TaskState state,

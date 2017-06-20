@@ -205,6 +205,7 @@ public class SqlTask
         }
 
         TaskStats taskStats = getTaskStats(taskHolder);
+        // TODO! With current implementation, a newly created driver group won't trigger immediate HTTP response
         Set<OptionalInt> completedDriverGroups = getCompletedDriverGroups(taskHolder);
         return new TaskStatus(
                 taskStateMachine.getTaskId(),

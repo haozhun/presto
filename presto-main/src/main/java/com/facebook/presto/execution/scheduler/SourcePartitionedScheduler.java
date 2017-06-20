@@ -41,6 +41,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.OptionalInt;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.facebook.presto.execution.scheduler.ScheduleResult.BlockedReason.SPLIT_QUEUES_FULL;
 import static com.facebook.presto.execution.scheduler.ScheduleResult.BlockedReason.WAITING_FOR_SOURCE;
@@ -72,6 +73,8 @@ public class SourcePartitionedScheduler
     private final Map<OptionalInt, ScheduleGroup> scheduleGroups = new HashMap<>();
     private State state = State.INITIALIZED;
 
+    private AtomicInteger scheduledDriverGroupsCount = new AtomicInteger();
+
     public SourcePartitionedScheduler(
             SqlStageExecution stage,
             PlanNodeId partitionedNode,
@@ -90,11 +93,28 @@ public class SourcePartitionedScheduler
         this.partitionedNode = partitionedNode;
 
         if (executionFlowStrategy == ExecutionFlowStrategy.PER_BUCKET) {
-            startDriverGroups(ImmutableList.of(OptionalInt.of(0), OptionalInt.of(1)));
+            for (int i = 0; i < 2; i++) {
+                scheduleNextDriverGroup();
+            }
+            stage.addCompletedDriverGroupChangeListener(this::newDriverGroupCompleted);
         }
         else {
             startDriverGroups(ImmutableList.of(OptionalInt.empty()));
         }
+    }
+
+    private void newDriverGroupCompleted(Set<OptionalInt> newlyCompletedDriverGroups)
+    {
+        for (OptionalInt newlyCompletedDriverGroup : newlyCompletedDriverGroups) {
+            scheduleNextDriverGroup();
+        }
+    }
+
+    private void scheduleNextDriverGroup()
+    {
+        OptionalInt driverGroupId = OptionalInt.of(scheduledDriverGroupsCount.getAndIncrement());
+        System.out.println(String.format("HJIN5: Scheduling new DriverGroup Stage %s PlanNodeId %s DriverGroup %s", stage.getStageId().getId(), partitionedNode, driverGroupId));
+        startDriverGroups(ImmutableList.of(driverGroupId));
     }
 
     @Override
