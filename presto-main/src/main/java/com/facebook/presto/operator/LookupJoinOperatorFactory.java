@@ -243,19 +243,21 @@ public class LookupJoinOperatorFactory
 
     public static class PerDriverGroupData
     {
+        private final OptionalInt driverGroupId;
         private final ReferenceCount probeReferenceCount;
         private final ReferenceCount lookupSourceFactoryUsersCount;
         private final ListenableFuture<OuterPositionIterator> outerPositionsFuture;
 
-        public PerDriverGroupData(JoinType joinType, int factoryCount, LookupSourceFactory lookupSourceFactory)
+        public PerDriverGroupData(OptionalInt driverGroupId, JoinType joinType, int factoryCount, LookupSourceFactory lookupSourceFactory)
         {
+            this.driverGroupId = driverGroupId;
+
             // When all probe and build-outer operators finish, destroy the lookup source (freeing the memory)
             // Whole probe side is counted as 1 in lookupSourceFactoryUsersCount
-            lookupSourceFactoryUsersCount = new ReferenceCount(factoryCount);
+            lookupSourceFactoryUsersCount = new ReferenceCount("user+" + driverGroupId.orElse(9999), 1);
             lookupSourceFactoryUsersCount.getFreeFuture().addListener(lookupSourceFactory::destroy, directExecutor());
 
-            // Whole probe side is counted as 1 in lookupSourceFactoryUsersCount
-            probeReferenceCount = new ReferenceCount(factoryCount);
+            probeReferenceCount = new ReferenceCount("probe+" + driverGroupId.orElse(9999), factoryCount);
             probeReferenceCount.getFreeFuture().addListener(lookupSourceFactoryUsersCount::release, directExecutor());
 
             if (joinType == INNER || joinType == PROBE_OUTER) {

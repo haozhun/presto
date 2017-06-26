@@ -21,20 +21,25 @@ import javax.annotation.concurrent.ThreadSafe;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
+import static java.util.Objects.requireNonNull;
 
 @ThreadSafe
 public class ReferenceCount
 {
     private final SettableFuture<Void> freeFuture = SettableFuture.create();
 
+    private final String name;
+
     @GuardedBy("this")
     private int count = 1;
 
-    public ReferenceCount(int initialCount)
+    public ReferenceCount(String name, int initialCount)
     {
+        this.name = requireNonNull(name, "name is null");
+
         checkArgument(initialCount >= 1, "initialCount must be at least 1");
         count = initialCount;
-        System.out.println(String.format("ReferenceCount: %s %s", this, count));
+        System.out.println(String.format("ReferenceCount: %s %s", name, count));
     }
 
     public ListenableFuture<Void> getFreeFuture()
@@ -46,16 +51,16 @@ public class ReferenceCount
     {
         checkState(!freeFuture.isDone(), "Reference has already been freed");
         count++;
-        System.out.println(String.format("ReferenceCount: %s %s      +1", this, count));
+        System.out.println(String.format("ReferenceCount: %s %s->%s      +1", name, count - 1, count));
     }
 
     public synchronized void release()
     {
         checkState(!freeFuture.isDone(), "Reference has already been freed");
         count--;
+        System.out.println(String.format("ReferenceCount: %s %s->%s      -1", name, count + 1, count));
         if (count == 0) {
             freeFuture.set(null);
         }
-        System.out.println(String.format("ReferenceCount: %s %s      -1", this, count));
     }
 }
