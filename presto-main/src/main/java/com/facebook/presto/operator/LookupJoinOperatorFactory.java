@@ -152,8 +152,7 @@ public class LookupJoinOperatorFactory
     @Override
     public void noMoreOperator(OptionalInt driverGroupId)
     {
-        // TODO! make it possible to release hash build when a driver group completes (instead of when everything finishes)
-        //x.getProbeReferenceCount(driverContext.getDriverGroup()).release();
+        perDriverGroupDataManager.getProbeReferenceCount(driverGroupId).release();
     }
 
     @Override
@@ -205,20 +204,32 @@ public class LookupJoinOperatorFactory
 
         private void noMoreGroupsForLookupJoinOperator()
         {
+            //TODO! this should be no-op?
+            /*
             if (noMoreGroupsForLookupJoin.compareAndSet(false, true)) {
                 for (PerDriverGroupData perDriverGroupData : map.values()) {
-                    perDriverGroupData.getProbeReferenceCount().release();
+                    boolean done = perDriverGroupData.getProbeReferenceCount().getFreeFuture().isDone();
+                    if (!done) {
+                        System.out.println("X");
+                    }
+                    checkState(done);
+                    //perDriverGroupData.getProbeReferenceCount().release();
                 }
             }
+            */
         }
 
         private void noMoreGroupsForLookupOuterOperator()
         {
+            //TODO! this should be no-op?
+            /*
             if (noMoreGroupsForLookupOuter.compareAndSet(false, true)) {
                 for (PerDriverGroupData perDriverGroupData : map.values()) {
-                    perDriverGroupData.getLookupSourceFactoryUsersCount().release();
+                    checkState(perDriverGroupData.getProbeReferenceCount().getFreeFuture().isDone());
+                    //perDriverGroupData.getLookupSourceFactoryUsersCount().release();
                 }
             }
+            */
         }
 
         private PerDriverGroupData data(OptionalInt driverGroupId)
@@ -226,7 +237,7 @@ public class LookupJoinOperatorFactory
             checkState(!noMoreGroupsForLookupJoin.get() && !noMoreGroupsForLookupOuter.get());
             return map.computeIfAbsent(
                     driverGroupId,
-                    id -> new PerDriverGroupData(joinType, factoryCount.get(), lookupSourceFactoryManager.forDriverGroup(id)));
+                    id -> new PerDriverGroupData(id, joinType, factoryCount.get(), lookupSourceFactoryManager.forDriverGroup(id)));
         }
     }
 

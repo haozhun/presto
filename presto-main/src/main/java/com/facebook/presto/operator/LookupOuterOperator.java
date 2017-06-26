@@ -97,6 +97,15 @@ public class LookupOuterOperator
         }
 
         @Override
+        public void noMoreOperator(OptionalInt driverGroupId)
+        {
+            // TODO! make it possible to release hash build when a driver group completes (instead of when everything finishes)
+            // Does the code below work?
+            ReferenceCount referenceCount = this.referenceCount.apply(driverGroupId);
+            referenceCount.release();
+        }
+
+        @Override
         public void close()
         {
             if (state == State.CLOSED) {
