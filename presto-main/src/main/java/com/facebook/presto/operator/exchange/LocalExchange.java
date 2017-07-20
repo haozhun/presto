@@ -23,6 +23,7 @@ import javax.annotation.concurrent.GuardedBy;
 import javax.annotation.concurrent.ThreadSafe;
 
 import java.io.Closeable;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -281,6 +282,7 @@ public class LocalExchange
         private int numSinkFactories;
 
         private ConcurrentMap<OptionalInt, LocalExchange> localExchangeMap = new ConcurrentHashMap<>();
+        private List<LocalExchangeSinkFactoryId> closedSinkFactories = new ArrayList<>();
 
         public LocalExchangeFactory(
                 PartitioningHandle partitioning,
@@ -339,12 +341,16 @@ public class LocalExchange
             return new LocalExchange(numSinkFactories, bufferCount, partitioning, defaultConcurrency, types, partitionChannels, partitionHashChannel, maxBufferedBytes);
         }
 
-        public LocalExchange getLocalExchange(OptionalInt driverGroupId)
+        public synchronized LocalExchange getLocalExchange(OptionalInt driverGroupId)
         {
             AtomicBoolean isNew = new AtomicBoolean();
             LocalExchange result = localExchangeMap.computeIfAbsent(driverGroupId, ignored -> {
                 isNew.set(true);
-                return createLocalExchange();
+                LocalExchange localExchange = createLocalExchange();
+                for (LocalExchangeSinkFactoryId closedSinkFactoryId : closedSinkFactories) {
+                    localExchange.getSinkFactory(closedSinkFactoryId).close();
+                }
+                return localExchange;
             });
             if (isNew.get() && listener != null) {
                 listener.accept(driverGroupId);
@@ -352,13 +358,16 @@ public class LocalExchange
             return result;
         }
 
-        public void closeSinks(LocalExchangeSinkFactoryId sinkFactoryId)
+        public synchronized void closeSinks(LocalExchangeSinkFactoryId sinkFactoryId)
         {
+            closedSinkFactories.add(sinkFactoryId);
             for (LocalExchange localExchange : localExchangeMap.values()) {
                 localExchange.getSinkFactory(sinkFactoryId).close();
             }
         }
 
+        // TODO: remove this hack! this should be possible. SqlTaskExecution could create DriverSplitRunner for all intermediate
+        // pipelines when a new driver group is encountered.
         private Consumer<OptionalInt> listener;
         public synchronized void setNewLocalExchangeListener(Consumer<OptionalInt> listener)
         {

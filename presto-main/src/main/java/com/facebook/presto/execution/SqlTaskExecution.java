@@ -283,9 +283,11 @@ public class SqlTaskExecution
             for (int i = 0; i < driverFactory.getDriverInstances().orElse(1); i++) {
                 runners.add(driverFactory.createDriverRunner(null, false, OptionalInt.empty()));
             }
-            driverFactory.setNoMoreSplits();
         }
         enqueueDrivers(true, runners);
+        for (DriverSplitRunnerFactory driverFactory : unpartitionedDriverFactories) {
+            driverFactory.setNoMoreSplits();
+        }
     }
 
     public TaskId getTaskId()
@@ -625,6 +627,10 @@ public class SqlTaskExecution
         schedulingDriverGroups.removeCompletelyScheduled();
 
         // TODO! This seems wrong? This indicates that there are no more driver groups for a particular plan node, not globally
+        // When all plan nodes in a task are scheduled in a bucket-by-bucket fashion, if any
+        // PlanNode has no more splits, all driver groups must have been seen. However, this
+        // won't work if some of the plan node is not large. This could happen in A JOIN B JOIN C,
+        // where A and B are large and bucketed, C is smaller and not bucketed.
         if (sourceUpdate.isNoMoreSplits()) {
             System.out.println("HJIN5: WARNING! suspicious line of code HIT");
             schedulingDriverGroups.noMoreDriverGroups();
@@ -1089,9 +1095,14 @@ public class SqlTaskExecution
 
         private final int pipelineCount;
 
+        // For these 3 perX fields, they are populated lazily. If enumeration operations on the
+        // map can lead to side effects, no new entries can be created after such enumeration has
+        // happened. Otherwise, the order of entry creation and the enumeration operation will
+        // lead to different outcome.
         private final Map<Integer, Map<OptionalInt, PerPlanNodeAndDriverGroupStatus>> perPlanNodeAndDriverGroup;
         private final Map<Integer, PerPlanNodeStatus> perPlanNode;
         private final Map<OptionalInt, PerDriverGroupStatus> perDriverGroup = new HashMap<>();
+
         private int overallRemainingDriver;
         private int overallNoMoreSplitsDriverGroups;
         private int driverGroupCount;
@@ -1122,7 +1133,7 @@ public class SqlTaskExecution
             checkState(per(pipelineId, driverGroupId).pendingCreation > 0, "Cannot decrement pendingCreation for Pipeline %s DriverGroup %s. Value is 0.", pipelineId, driverGroupId);
             per(pipelineId, driverGroupId).pendingCreation--;
             if (per(pipelineId, driverGroupId).pendingCreation == 0 && per(pipelineId, driverGroupId).noMoreSplits) {
-                System.out.println(String.format("HJIN9: NoMoreDriversForDG Event: Pipeline %s DriverGroup %s", pipelineId, driverGroupId));
+                System.out.println(String.format("HJIN9: NoMoreDriversForDG Event: Task %s.%s Pipeline %s DriverGroup %s", taskContext.getTaskId().getStageId().getId(), taskContext.getTaskId().getId(), pipelineId, driverGroupId));
                 per(pipelineId).unacknowledgedNoMoreDriversForDriverGroupEvents.add(driverGroupId);
             }
             per(pipelineId).pendingCreation--;
@@ -1181,6 +1192,7 @@ public class SqlTaskExecution
 
         public synchronized void setNoMoreSplits(int pipelineId)
         {
+            // If any of the source nodes is in no more splits state, there cannot be any more driver groups?
             noMoreDriverGroups = true;
 
             // TODO!
@@ -1257,6 +1269,7 @@ public class SqlTaskExecution
             if (perDriverGroup.containsKey(driverGroupId)) {
                 return perDriverGroup.get(driverGroupId);
             }
+            checkState(!noMoreDriverGroups, "noMoreDriverGroups is set");
             driverGroupCount++;
             PerDriverGroupStatus result = new PerDriverGroupStatus();
             perDriverGroup.put(driverGroupId, result);
