@@ -139,7 +139,7 @@ public class SourcePartitionedScheduler
                 // try to get the next batch
                 if (scheduleGroup.batchFuture == null) {
                     if (splitSource.isFinished()) {
-                        checkArgument(!driverGroupId.isPresent(), "Milestone when hit");
+                        // TODO: remove driverGroupId argument
                         return handleNoMoreSplits(driverGroupId);
                     }
                     scheduleGroup.batchFuture = splitSource.getNextBatch(driverGroupId, splitBatchSize - pendingSplits.size());
@@ -211,9 +211,8 @@ public class SourcePartitionedScheduler
         }
 
         if (overallBlockedPlacements.isEmpty()) {
-            boolean finished = false;
             // all splits assigned - check if the source is finished
-            finished = splitSource.isFinished();
+            boolean finished = splitSource.isFinished();
             if (finished) {
                 splitSource.close();
             }
@@ -235,7 +234,6 @@ public class SourcePartitionedScheduler
 
     private ScheduleResult handleNoMoreSplits(OptionalInt driverGroupId)
     {
-        checkArgument(!driverGroupId.isPresent()); // caller has the same check
         switch (state) {
             case INITIALIZED:
                 // we have not scheduled a single split so far
@@ -255,14 +253,14 @@ public class SourcePartitionedScheduler
         splitSource.close();
     }
 
-    public void startDriverGroups(List<OptionalInt> driverGroupIds)
+    public synchronized void startDriverGroups(List<OptionalInt> driverGroupIds)
     {
         for (OptionalInt driverGroupId : driverGroupIds) {
             scheduleGroups.put(driverGroupId, new ScheduleGroup(driverGroupId));
         }
     }
 
-    public List<OptionalInt> getAndCleanUpCompletedDriverGroups()
+    public synchronized List<OptionalInt> getAndCleanUpCompletedDriverGroups()
     {
         //TODO! include all driver groups here if the the scheduler is done.
         ImmutableList.Builder<OptionalInt> result = ImmutableList.builder();
