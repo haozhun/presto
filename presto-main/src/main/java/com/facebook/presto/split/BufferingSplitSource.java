@@ -14,6 +14,7 @@
 package com.facebook.presto.split;
 
 import com.facebook.presto.connector.ConnectorId;
+import com.facebook.presto.execution.DriverGroupId;
 import com.facebook.presto.metadata.Split;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 import com.google.common.util.concurrent.Futures;
@@ -21,7 +22,6 @@ import com.google.common.util.concurrent.ListenableFuture;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.OptionalInt;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.util.concurrent.Futures.immediateFuture;
@@ -55,11 +55,11 @@ public class BufferingSplitSource
     public ListenableFuture<List<Split>> getNextBatch(int maxSize)
     {
         checkArgument(maxSize > 0, "Cannot fetch a batch of zero size");
-        return Futures.transform(getNextBatch(OptionalInt.empty(), maxSize), SplitBatch::getSplits);
+        return Futures.transform(getNextBatch(DriverGroupId.empty(), maxSize), SplitBatch::getSplits);
     }
 
     @Override
-    public ListenableFuture<SplitBatch> getNextBatch(OptionalInt driverGroupId, int maxSize)
+    public ListenableFuture<SplitBatch> getNextBatch(DriverGroupId driverGroupId, int maxSize)
     {
         checkArgument(maxSize > 0, "Cannot fetch a batch of zero size");
         FetchSplitsResult fetchSplitsResult = new FetchSplitsResult();
@@ -67,7 +67,7 @@ public class BufferingSplitSource
         return Futures.transform(future, ignored -> fetchSplitsResult.toSplitBatch());
     }
 
-    private ListenableFuture<?> fetchSplits(int min, int max, OptionalInt driverGroupId, FetchSplitsResult result)
+    private ListenableFuture<?> fetchSplits(int min, int max, DriverGroupId driverGroupId, FetchSplitsResult result)
     {
         checkArgument(min <= max, "Min splits greater than max splits");
         if (source.isFinished() || result.splitSize() >= min) {

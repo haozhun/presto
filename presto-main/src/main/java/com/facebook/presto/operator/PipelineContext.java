@@ -14,6 +14,7 @@
 package com.facebook.presto.operator;
 
 import com.facebook.presto.Session;
+import com.facebook.presto.execution.DriverGroupId;
 import com.facebook.presto.execution.TaskId;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
@@ -30,7 +31,6 @@ import javax.annotation.concurrent.ThreadSafe;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map.Entry;
-import java.util.OptionalInt;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
@@ -129,10 +129,10 @@ public class PipelineContext
 
     public DriverContext addDriverContext(boolean partitioned)
     {
-        return addDriverContext(partitioned, OptionalInt.empty());
+        return addDriverContext(partitioned, DriverGroupId.empty());
     }
 
-    public DriverContext addDriverContext(boolean partitioned, OptionalInt driverGroup)
+    public DriverContext addDriverContext(boolean partitioned, DriverGroupId driverGroup)
     {
         DriverContext driverContext = new DriverContext(this, executor, partitioned, driverGroup);
         drivers.add(driverContext);

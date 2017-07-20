@@ -13,12 +13,12 @@
  */
 package com.facebook.presto.operator;
 
+import com.facebook.presto.execution.DriverGroupId;
 import com.facebook.presto.sql.planner.plan.PlanNodeId;
 import com.facebook.presto.testing.TestingSession;
 import com.facebook.presto.testing.TestingTaskContext;
 import com.google.common.util.concurrent.MoreExecutors;
 
-import java.util.OptionalInt;
 import java.util.concurrent.Executor;
 
 public class TestingOperatorContext
@@ -43,7 +43,7 @@ public class TestingOperatorContext
                 pipelineContext,
                 executor,
                 false,
-                OptionalInt.empty()
+                DriverGroupId.empty()
         );
 
         OperatorContext operatorContext = driverContext.addOperatorContext(

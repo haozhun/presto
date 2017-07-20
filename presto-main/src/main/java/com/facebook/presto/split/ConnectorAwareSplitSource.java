@@ -14,6 +14,7 @@
 package com.facebook.presto.split;
 
 import com.facebook.presto.connector.ConnectorId;
+import com.facebook.presto.execution.DriverGroupId;
 import com.facebook.presto.metadata.Split;
 import com.facebook.presto.spi.ConnectorSplit;
 import com.facebook.presto.spi.ConnectorSplitSource;
@@ -26,7 +27,6 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 
 import java.util.List;
-import java.util.OptionalInt;
 
 import static com.google.common.base.Preconditions.checkState;
 import static io.airlift.concurrent.MoreFutures.toListenableFuture;
@@ -73,10 +73,10 @@ public class ConnectorAwareSplitSource
     }
 
     @Override
-    public ListenableFuture<SplitBatch> getNextBatch(OptionalInt driverGroupId, int maxSize)
+    public ListenableFuture<SplitBatch> getNextBatch(DriverGroupId driverGroupId, int maxSize)
     {
         checkState(driverGroupId.isPresent() == (executionFlowStrategy == ExecutionFlowStrategy.PER_BUCKET));
-        ListenableFuture<ConnectorSplitBatch> nextBatch = toListenableFuture(source.getNextBatch(driverGroupId, maxSize));
+        ListenableFuture<ConnectorSplitBatch> nextBatch = toListenableFuture(source.getNextBatch(driverGroupId.toOptionalInt(), maxSize));
         return Futures.transform(nextBatch, splitBatch -> {
             ImmutableList.Builder<Split> result = ImmutableList.builder();
             for (ConnectorSplit connectorSplit : splitBatch.getSplits()) {

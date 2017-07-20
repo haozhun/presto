@@ -15,6 +15,7 @@ package com.facebook.presto.operator;
 
 import com.facebook.presto.ExceededMemoryLimitException;
 import com.facebook.presto.RowPagesBuilder;
+import com.facebook.presto.execution.DriverGroupId;
 import com.facebook.presto.operator.DriverGroupEntityManager.LookupSourceFactoryManager;
 import com.facebook.presto.operator.HashBuilderOperator.HashBuilderOperatorFactory;
 import com.facebook.presto.operator.ValuesOperator.ValuesOperatorFactory;
@@ -42,7 +43,6 @@ import org.testng.annotations.Test;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
 import java.util.stream.IntStream;
@@ -747,7 +747,7 @@ public class TestHashJoinOperator
                     buildOperatorFactory.createOperator(buildDriverContext));
         }
 
-        LookupSourceFactory lookupSourceFactory = lookupSourceFactoryManager.forDriverGroup(OptionalInt.empty());
+        LookupSourceFactory lookupSourceFactory = lookupSourceFactoryManager.forDriverGroup(DriverGroupId.empty());
         while (!lookupSourceFactory.createLookupSource().isDone()) {
             for (Driver buildDriver : buildDrivers) {
                 buildDriver.process();

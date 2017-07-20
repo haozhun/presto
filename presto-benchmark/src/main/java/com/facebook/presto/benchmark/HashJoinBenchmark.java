@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.benchmark;
 
+import com.facebook.presto.execution.DriverGroupId;
 import com.facebook.presto.operator.Driver;
 import com.facebook.presto.operator.DriverContext;
 import com.facebook.presto.operator.DriverFactory;
@@ -84,7 +85,7 @@ public class HashJoinBenchmark
 
             DriverContext driverContext = taskContext.addPipelineContext(0, false, false).addDriverContext();
             Driver driver = new DriverFactory(0, false, false, ImmutableList.of(ordersTableScan, hashBuilder), OptionalInt.empty()).createDriver(driverContext);
-            while (this.lookupSourceFactoryManager.forDriverGroup(OptionalInt.empty()).createLookupSource().isDone()) {
+            while (this.lookupSourceFactoryManager.forDriverGroup(DriverGroupId.empty()).createLookupSource().isDone()) {
                 driver.process();
             }
             this.lookupSourceFactoryManager = lookupSourceFactoryManager;

@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.operator;
 
+import com.facebook.presto.execution.DriverGroupId;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.PageBuilder;
 import com.facebook.presto.spi.type.Type;
@@ -21,7 +22,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListenableFuture;
 
 import java.util.List;
-import java.util.OptionalInt;
 import java.util.function.Function;
 
 import static com.google.common.base.Preconditions.checkState;
@@ -41,21 +41,21 @@ public class LookupOuterOperator
 
         private final int operatorId;
         private final PlanNodeId planNodeId;
-        private final Function<OptionalInt, ListenableFuture<OuterPositionIterator>> outerPositionsFuture;
+        private final Function<DriverGroupId, ListenableFuture<OuterPositionIterator>> outerPositionsFuture;
         private final List<Type> types;
         private final List<Type> probeOutputTypes;
         private final List<Type> buildOutputTypes;
-        private final Function<OptionalInt, ReferenceCount> referenceCount;
+        private final Function<DriverGroupId, ReferenceCount> referenceCount;
         private final Runnable onNoMoreGroups;
         private State state = State.NOT_CREATED;
 
         public LookupOuterOperatorFactory(
                 int operatorId,
                 PlanNodeId planNodeId,
-                Function<OptionalInt, ListenableFuture<OuterPositionIterator>> outerPositionsFuture,
+                Function<DriverGroupId, ListenableFuture<OuterPositionIterator>> outerPositionsFuture,
                 List<Type> probeOutputTypes,
                 List<Type> buildOutputTypes,
-                Function<OptionalInt, ReferenceCount> referenceCount,
+                Function<DriverGroupId, ReferenceCount> referenceCount,
                 Runnable onNoMoreGroups)
         {
             this.operatorId = operatorId;
@@ -97,7 +97,7 @@ public class LookupOuterOperator
         }
 
         @Override
-        public void noMoreOperator(OptionalInt driverGroupId)
+        public void noMoreOperator(DriverGroupId driverGroupId)
         {
             // TODO! make it possible to release hash build when a driver group completes (instead of when everything finishes)
             // Does the code below work?

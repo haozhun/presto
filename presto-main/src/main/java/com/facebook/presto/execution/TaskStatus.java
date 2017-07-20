@@ -21,7 +21,6 @@ import io.airlift.units.DataSize;
 
 import java.net.URI;
 import java.util.List;
-import java.util.OptionalInt;
 import java.util.Set;
 
 import static com.facebook.presto.execution.TaskState.PLANNED;
@@ -55,7 +54,7 @@ public class TaskStatus
     private final long version;
     private final TaskState state;
     private final URI self;
-    private final Set<OptionalInt> completedDriverGroups;
+    private final Set<DriverGroupId> completedDriverGroups;
 
     private final int queuedPartitionedDrivers;
     private final int runningPartitionedDrivers;
@@ -70,7 +69,7 @@ public class TaskStatus
             @JsonProperty("version") long version,
             @JsonProperty("state") TaskState state,
             @JsonProperty("self") URI self,
-            @JsonProperty("completedDriverGroups") Set<OptionalInt> completedDriverGroups,
+            @JsonProperty("completedDriverGroups") Set<DriverGroupId> completedDriverGroups,
             @JsonProperty("failures") List<ExecutionFailureInfo> failures,
             @JsonProperty("queuedPartitionedDrivers") int queuedPartitionedDrivers,
             @JsonProperty("runningPartitionedDrivers") int runningPartitionedDrivers,
@@ -126,7 +125,7 @@ public class TaskStatus
     }
 
     @JsonProperty
-    public Set<OptionalInt> getCompletedDriverGroups()
+    public Set<DriverGroupId> getCompletedDriverGroups()
     {
         return completedDriverGroups;
     }

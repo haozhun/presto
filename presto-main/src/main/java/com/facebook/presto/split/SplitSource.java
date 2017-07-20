@@ -14,13 +14,13 @@
 package com.facebook.presto.split;
 
 import com.facebook.presto.connector.ConnectorId;
+import com.facebook.presto.execution.DriverGroupId;
 import com.facebook.presto.metadata.Split;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 import com.google.common.util.concurrent.ListenableFuture;
 
 import java.io.Closeable;
 import java.util.List;
-import java.util.OptionalInt;
 
 import static java.util.Objects.requireNonNull;
 
@@ -33,7 +33,7 @@ public interface SplitSource
 
     ListenableFuture<List<Split>> getNextBatch(int maxSize);
 
-    default ListenableFuture<SplitBatch> getNextBatch(OptionalInt driverGroupId, int maxSize)
+    default ListenableFuture<SplitBatch> getNextBatch(DriverGroupId driverGroupId, int maxSize)
     {
         throw new UnsupportedOperationException();
     }

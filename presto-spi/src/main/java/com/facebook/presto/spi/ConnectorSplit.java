@@ -24,6 +24,7 @@ public interface ConnectorSplit
 
     Object getInfo();
 
+    // TODO: rename to bucket id
     default OptionalInt getDriverGroupId()
     {
         return OptionalInt.empty();

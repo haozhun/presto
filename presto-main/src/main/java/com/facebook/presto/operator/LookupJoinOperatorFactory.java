@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.operator;
 
+import com.facebook.presto.execution.DriverGroupId;
 import com.facebook.presto.operator.DriverGroupEntityManager.LookupSourceFactoryManager;
 import com.facebook.presto.operator.LookupJoinOperators.JoinType;
 import com.facebook.presto.operator.LookupOuterOperator.LookupOuterOperatorFactory;
@@ -24,7 +25,6 @@ import com.google.common.util.concurrent.ListenableFuture;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -150,7 +150,7 @@ public class LookupJoinOperatorFactory
     }
 
     @Override
-    public void noMoreOperator(OptionalInt driverGroupId)
+    public void noMoreOperator(DriverGroupId driverGroupId)
     {
         perDriverGroupDataManager.getProbeReferenceCount(driverGroupId).release();
     }
@@ -176,7 +176,7 @@ public class LookupJoinOperatorFactory
         // In addition to common reasons for creating 1 map instead of 3, an additional reason applies here.
         // The initialization for all/some of these values have side effects. As a result, making sure all 3
         // at the same time simplifies reasoning about correctness.
-        private final Map<OptionalInt, PerDriverGroupData> map = new ConcurrentHashMap<>();
+        private final Map<DriverGroupId, PerDriverGroupData> map = new ConcurrentHashMap<>();
         private final AtomicBoolean noMoreGroupsForLookupJoin = new AtomicBoolean();
         private final AtomicBoolean noMoreGroupsForLookupOuter = new AtomicBoolean();
 
@@ -187,17 +187,17 @@ public class LookupJoinOperatorFactory
             this.lookupSourceFactoryManager = lookupSourceFactoryManager;
         }
 
-        private ReferenceCount getProbeReferenceCount(OptionalInt driverGroupId)
+        private ReferenceCount getProbeReferenceCount(DriverGroupId driverGroupId)
         {
             return data(driverGroupId).getProbeReferenceCount();
         }
 
-        public ReferenceCount getLookupSourceFactoryUsersCount(OptionalInt driverGroupId)
+        public ReferenceCount getLookupSourceFactoryUsersCount(DriverGroupId driverGroupId)
         {
             return data(driverGroupId).getLookupSourceFactoryUsersCount();
         }
 
-        public ListenableFuture<OuterPositionIterator> getOuterPositionsFuture(OptionalInt driverGroupId)
+        public ListenableFuture<OuterPositionIterator> getOuterPositionsFuture(DriverGroupId driverGroupId)
         {
             return data(driverGroupId).getOuterPositionsFuture();
         }
@@ -232,7 +232,7 @@ public class LookupJoinOperatorFactory
             */
         }
 
-        private PerDriverGroupData data(OptionalInt driverGroupId)
+        private PerDriverGroupData data(DriverGroupId driverGroupId)
         {
             checkState(!noMoreGroupsForLookupJoin.get() && !noMoreGroupsForLookupOuter.get());
             return map.computeIfAbsent(
@@ -243,21 +243,21 @@ public class LookupJoinOperatorFactory
 
     public static class PerDriverGroupData
     {
-        private final OptionalInt driverGroupId;
+        private final DriverGroupId driverGroupId;
         private final ReferenceCount probeReferenceCount;
         private final ReferenceCount lookupSourceFactoryUsersCount;
         private final ListenableFuture<OuterPositionIterator> outerPositionsFuture;
 
-        public PerDriverGroupData(OptionalInt driverGroupId, JoinType joinType, int factoryCount, LookupSourceFactory lookupSourceFactory)
+        public PerDriverGroupData(DriverGroupId driverGroupId, JoinType joinType, int factoryCount, LookupSourceFactory lookupSourceFactory)
         {
             this.driverGroupId = driverGroupId;
 
             // When all probe and build-outer operators finish, destroy the lookup source (freeing the memory)
             // Whole probe side is counted as 1 in lookupSourceFactoryUsersCount
-            lookupSourceFactoryUsersCount = new ReferenceCount("user+" + driverGroupId.orElse(9999), 1);
+            lookupSourceFactoryUsersCount = new ReferenceCount("user+" + driverGroupId.toString(), 1);
             lookupSourceFactoryUsersCount.getFreeFuture().addListener(lookupSourceFactory::destroy, directExecutor());
 
-            probeReferenceCount = new ReferenceCount("probe+" + driverGroupId.orElse(9999), factoryCount);
+            probeReferenceCount = new ReferenceCount("probe+" + driverGroupId.toString(), factoryCount);
             probeReferenceCount.getFreeFuture().addListener(lookupSourceFactoryUsersCount::release, directExecutor());
 
             if (joinType == INNER || joinType == PROBE_OUTER) {

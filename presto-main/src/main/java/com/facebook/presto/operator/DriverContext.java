@@ -14,6 +14,7 @@
 package com.facebook.presto.operator;
 
 import com.facebook.presto.Session;
+import com.facebook.presto.execution.DriverGroupId;
 import com.facebook.presto.execution.TaskId;
 import com.facebook.presto.sql.planner.plan.PlanNodeId;
 import com.google.common.collect.ImmutableList;
@@ -27,7 +28,6 @@ import org.joda.time.DateTime;
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
 import java.util.List;
-import java.util.OptionalInt;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -83,9 +83,9 @@ public class DriverContext
 
     private final List<OperatorContext> operatorContexts = new CopyOnWriteArrayList<>();
     private final boolean partitioned;
-    private final OptionalInt driverGroup;
+    private final DriverGroupId driverGroup;
 
-    public DriverContext(PipelineContext pipelineContext, Executor executor, boolean partitioned, OptionalInt driverGroup)
+    public DriverContext(PipelineContext pipelineContext, Executor executor, boolean partitioned, DriverGroupId driverGroup)
     {
         this.pipelineContext = requireNonNull(pipelineContext, "pipelineContext is null");
         this.executor = requireNonNull(executor, "executor is null");
@@ -418,7 +418,7 @@ public class DriverContext
         return partitioned;
     }
 
-    public OptionalInt getDriverGroup()
+    public DriverGroupId getDriverGroup()
     {
         return driverGroup;
     }

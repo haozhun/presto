@@ -13,12 +13,12 @@
  */
 package com.facebook.presto;
 
+import com.facebook.presto.execution.DriverGroupId;
 import com.facebook.presto.sql.planner.plan.PlanNodeId;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableSet;
 
-import java.util.OptionalInt;
 import java.util.Set;
 
 import static com.google.common.base.MoreObjects.toStringHelper;
@@ -29,14 +29,14 @@ public class TaskSource
 {
     private final PlanNodeId planNodeId;
     private final Set<ScheduledSplit> splits;
-    private final Set<OptionalInt> noMoreSplitsForDriverGroup;
+    private final Set<DriverGroupId> noMoreSplitsForDriverGroup;
     private final boolean noMoreSplits;
 
     @JsonCreator
     public TaskSource(
             @JsonProperty("planNodeId") PlanNodeId planNodeId,
             @JsonProperty("splits") Set<ScheduledSplit> splits,
-            @JsonProperty("noMoreSplitsForDriverGroup") Set<OptionalInt> noMoreSplitsForDriverGroup,
+            @JsonProperty("noMoreSplitsForDriverGroup") Set<DriverGroupId> noMoreSplitsForDriverGroup,
             @JsonProperty("noMoreSplits") boolean noMoreSplits)
     {
         this.planNodeId = requireNonNull(planNodeId, "planNodeId is null");
@@ -66,7 +66,7 @@ public class TaskSource
     }
 
     @JsonProperty
-    public Set<OptionalInt> getNoMoreSplitsForDriverGroup()
+    public Set<DriverGroupId> getNoMoreSplitsForDriverGroup()
     {
         return noMoreSplitsForDriverGroup;
     }
@@ -90,7 +90,7 @@ public class TaskSource
                     .addAll(splits)
                     .addAll(source.getSplits())
                     .build();
-            Set<OptionalInt> newNoMoreSplitsForDriverGroup = ImmutableSet.<OptionalInt>builder()
+            Set<DriverGroupId> newNoMoreSplitsForDriverGroup = ImmutableSet.<DriverGroupId>builder()
                     .addAll(noMoreSplitsForDriverGroup)
                     .addAll(source.getNoMoreSplitsForDriverGroup())
                     .build();

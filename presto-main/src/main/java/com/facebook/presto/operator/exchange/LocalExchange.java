@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.operator.exchange;
 
+import com.facebook.presto.execution.DriverGroupId;
 import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.sql.planner.PartitioningHandle;
@@ -27,7 +28,6 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -281,7 +281,7 @@ public class LocalExchange
         // so that the exact number of sink factory is known by the time execution starts.
         private int numSinkFactories;
 
-        private ConcurrentMap<OptionalInt, LocalExchange> localExchangeMap = new ConcurrentHashMap<>();
+        private ConcurrentMap<DriverGroupId, LocalExchange> localExchangeMap = new ConcurrentHashMap<>();
         private List<LocalExchangeSinkFactoryId> closedSinkFactories = new ArrayList<>();
 
         public LocalExchangeFactory(
@@ -341,7 +341,7 @@ public class LocalExchange
             return new LocalExchange(numSinkFactories, bufferCount, partitioning, defaultConcurrency, types, partitionChannels, partitionHashChannel, maxBufferedBytes);
         }
 
-        public synchronized LocalExchange getLocalExchange(OptionalInt driverGroupId)
+        public synchronized LocalExchange getLocalExchange(DriverGroupId driverGroupId)
         {
             AtomicBoolean isNew = new AtomicBoolean();
             LocalExchange result = localExchangeMap.computeIfAbsent(driverGroupId, ignored -> {
@@ -368,8 +368,8 @@ public class LocalExchange
 
         // TODO: remove this hack! this should be possible. SqlTaskExecution could create DriverSplitRunner for all intermediate
         // pipelines when a new driver group is encountered.
-        private Consumer<OptionalInt> listener;
-        public synchronized void setNewLocalExchangeListener(Consumer<OptionalInt> listener)
+        private Consumer<DriverGroupId> listener;
+        public synchronized void setNewLocalExchangeListener(Consumer<DriverGroupId> listener)
         {
             requireNonNull(listener, "listener is null");
             checkState(this.listener == null, "listener already set");

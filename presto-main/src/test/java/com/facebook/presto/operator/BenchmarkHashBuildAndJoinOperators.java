@@ -14,6 +14,7 @@
 package com.facebook.presto.operator;
 
 import com.facebook.presto.RowPagesBuilder;
+import com.facebook.presto.execution.DriverGroupId;
 import com.facebook.presto.operator.DriverGroupEntityManager.LookupSourceFactoryManager;
 import com.facebook.presto.operator.HashBuilderOperator.HashBuilderOperatorFactory;
 import com.facebook.presto.spi.Page;
@@ -43,7 +44,6 @@ import org.openjdk.jmh.runner.options.VerboseMode;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.Random;
 import java.util.concurrent.ExecutorService;
 
@@ -305,7 +305,7 @@ public class BenchmarkHashBuildAndJoinOperators
         }
         operator.finish();
 
-        LookupSourceFactory lookupSourceFactory = lookupSourceFactoryManager.forDriverGroup(OptionalInt.empty());
+        LookupSourceFactory lookupSourceFactory = lookupSourceFactoryManager.forDriverGroup(DriverGroupId.empty());
         if (!lookupSourceFactory.createLookupSource().isDone()) {
             throw new AssertionError("Expected lookup source to be done");
         }

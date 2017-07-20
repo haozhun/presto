@@ -14,12 +14,12 @@
 
 package com.facebook.presto.operator;
 
+import com.facebook.presto.execution.DriverGroupId;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.sql.planner.Symbol;
 
 import java.util.List;
 import java.util.Map;
-import java.util.OptionalInt;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -28,30 +28,30 @@ import static java.util.Objects.requireNonNull;
 
 public class DriverGroupEntityManager<T>
 {
-    private final Function<OptionalInt, T> function;
-    private final Map<OptionalInt, T> map = new ConcurrentHashMap<>();
+    private final Function<DriverGroupId, T> function;
+    private final Map<DriverGroupId, T> map = new ConcurrentHashMap<>();
 
-    public DriverGroupEntityManager(Function<OptionalInt, T> function)
+    public DriverGroupEntityManager(Function<DriverGroupId, T> function)
     {
         this.function = requireNonNull(function, "function is null");
     }
 
-    public T forDriverGroup(OptionalInt driverGroupId)
+    public T forDriverGroup(DriverGroupId driverGroupId)
     {
         return map.computeIfAbsent(driverGroupId, function);
     }
 
-    public void forEachDriverGroup(Consumer<OptionalInt> driverGroupCallback)
+    public void forEachDriverGroup(Consumer<DriverGroupId> driverGroupCallback)
     {
         // TODO: simplify
-        for (Map.Entry<OptionalInt, T> entry : map.entrySet()) {
+        for (Map.Entry<DriverGroupId, T> entry : map.entrySet()) {
             driverGroupCallback.accept(entry.getKey());
         }
     }
 
-//    public void forEachDriverGroup(BiConsumer<OptionalInt, T> driverGroupCallback)
+//    public void forEachDriverGroup(BiConsumer<DriverGroupId, T> driverGroupCallback)
 //    {
-//        for (Map.Entry<OptionalInt, T> entry : map.entrySet()) {
+//        for (Map.Entry<DriverGroupId, T> entry : map.entrySet()) {
 //            driverGroupCallback.accept(entry.getKey(), entry.getValue());
 //        }
 //    }
@@ -84,12 +84,12 @@ public class DriverGroupEntityManager<T>
             return outputTypes;
         }
 
-        public LookupSourceFactory forDriverGroup(OptionalInt driverGroupId)
+        public LookupSourceFactory forDriverGroup(DriverGroupId driverGroupId)
         {
             return manager.forDriverGroup(driverGroupId);
         }
 
-        public void forEachDriverGroup(Consumer<OptionalInt> driverGroupCallback)
+        public void forEachDriverGroup(Consumer<DriverGroupId> driverGroupCallback)
         {
             manager.forEachDriverGroup(driverGroupCallback);
         }

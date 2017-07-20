@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.execution.scheduler;
 
+import com.facebook.presto.execution.DriverGroupId;
 import com.facebook.presto.execution.RemoteTask;
 import com.facebook.presto.execution.SqlStageExecution;
 import com.facebook.presto.execution.scheduler.FixedSourcePartitionedScheduler.FixedSplitPlacementPolicy;
@@ -39,7 +40,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -72,7 +72,7 @@ public class SourcePartitionedScheduler
     private final int splitBatchSize;
     private final PlanNodeId partitionedNode;
 
-    private final Map<OptionalInt, ScheduleGroup> scheduleGroups = new HashMap<>();
+    private final Map<DriverGroupId, ScheduleGroup> scheduleGroups = new HashMap<>();
     private State state = State.INITIALIZED;
 
     private AtomicInteger scheduledDriverGroupsCount = new AtomicInteger();
@@ -101,13 +101,13 @@ public class SourcePartitionedScheduler
             stage.addCompletedDriverGroupChangeListener(this::newDriverGroupCompleted);
         }
         else {
-            startDriverGroups(ImmutableList.of(OptionalInt.empty()));
+            startDriverGroups(ImmutableList.of(DriverGroupId.empty()));
         }
     }
 
-    private void newDriverGroupCompleted(Set<OptionalInt> newlyCompletedDriverGroups)
+    private void newDriverGroupCompleted(Set<DriverGroupId> newlyCompletedDriverGroups)
     {
-        for (OptionalInt newlyCompletedDriverGroup : newlyCompletedDriverGroups) {
+        for (DriverGroupId newlyCompletedDriverGroup : newlyCompletedDriverGroups) {
             scheduleNextDriverGroup();
         }
     }
@@ -115,7 +115,7 @@ public class SourcePartitionedScheduler
     private void scheduleNextDriverGroup()
     {
         //TODO: Don't schedule past total number of buckets
-        OptionalInt driverGroupId = OptionalInt.of(scheduledDriverGroupsCount.getAndIncrement());
+        DriverGroupId driverGroupId = DriverGroupId.of(scheduledDriverGroupsCount.getAndIncrement());
         System.out.println(String.format("HJIN5: Scheduling new DriverGroup Stage %s PlanNodeId %s DriverGroup %s", stage.getStageId().getId(), partitionedNode, driverGroupId));
         startDriverGroups(ImmutableList.of(driverGroupId));
     }
@@ -129,8 +129,8 @@ public class SourcePartitionedScheduler
         ImmutableSet.Builder<RemoteTask> overallNewTasks = ImmutableSet.builder();
         List<ListenableFuture<?>> overallBlockedPlacements = new ArrayList<>();
 
-        for (Entry<OptionalInt, ScheduleGroup> entry : scheduleGroups.entrySet()) {
-            OptionalInt driverGroupId = entry.getKey();
+        for (Entry<DriverGroupId, ScheduleGroup> entry : scheduleGroups.entrySet()) {
+            DriverGroupId driverGroupId = entry.getKey();
             ScheduleGroup scheduleGroup = entry.getValue();
             Set<Split> pendingSplits = scheduleGroup.pendingSplits;
 
@@ -168,7 +168,7 @@ public class SourcePartitionedScheduler
                     if (nextSplits.isNoMoreSplits() && scheduleGroup.state == ScheduleGroupState.INITIAL) {
                         scheduleGroup.state = ScheduleGroupState.NO_MORE_SPLITS;
                         if (driverGroupId.isPresent()) {
-                            scheduleGroup.node = ((FixedSplitPlacementPolicy) splitPlacementPolicy).getNodeForBucket(driverGroupId.getAsInt());
+                            scheduleGroup.node = ((FixedSplitPlacementPolicy) splitPlacementPolicy).getNodeForBucket(driverGroupId.get());
                         }
                     }
                 }
@@ -197,7 +197,7 @@ public class SourcePartitionedScheduler
             }
 
             // TODO! add comment
-            Map<Node, OptionalInt> noMoreSplitsNotification = ImmutableMap.of();
+            Map<Node, DriverGroupId> noMoreSplitsNotification = ImmutableMap.of();
             if (pendingSplits.isEmpty() && scheduleGroup.state == ScheduleGroupState.NO_MORE_SPLITS) {
                 noMoreSplitsNotification = ImmutableMap.of(scheduleGroup.node, driverGroupId);
                 scheduleGroup.state = ScheduleGroupState.DONE;
@@ -232,7 +232,7 @@ public class SourcePartitionedScheduler
                 overallSplitAssignmentCount);
     }
 
-    private ScheduleResult handleNoMoreSplits(OptionalInt driverGroupId)
+    private ScheduleResult handleNoMoreSplits(DriverGroupId driverGroupId)
     {
         switch (state) {
             case INITIALIZED:
@@ -253,20 +253,20 @@ public class SourcePartitionedScheduler
         splitSource.close();
     }
 
-    public synchronized void startDriverGroups(List<OptionalInt> driverGroupIds)
+    public synchronized void startDriverGroups(List<DriverGroupId> driverGroupIds)
     {
-        for (OptionalInt driverGroupId : driverGroupIds) {
+        for (DriverGroupId driverGroupId : driverGroupIds) {
             scheduleGroups.put(driverGroupId, new ScheduleGroup(driverGroupId));
         }
     }
 
-    public synchronized List<OptionalInt> getAndCleanUpCompletedDriverGroups()
+    public synchronized List<DriverGroupId> getAndCleanUpCompletedDriverGroups()
     {
         //TODO! include all driver groups here if the the scheduler is done.
-        ImmutableList.Builder<OptionalInt> result = ImmutableList.builder();
-        Iterator<Entry<OptionalInt, ScheduleGroup>> entryIterator = scheduleGroups.entrySet().iterator();
+        ImmutableList.Builder<DriverGroupId> result = ImmutableList.builder();
+        Iterator<Entry<DriverGroupId, ScheduleGroup>> entryIterator = scheduleGroups.entrySet().iterator();
         while (entryIterator.hasNext()) {
-            Entry<OptionalInt, ScheduleGroup> entry = entryIterator.next();
+            Entry<DriverGroupId, ScheduleGroup> entry = entryIterator.next();
             if (entry.getValue().state == ScheduleGroupState.DONE) {
                 result.add(entry.getKey());
                 entryIterator.remove();
@@ -291,7 +291,7 @@ public class SourcePartitionedScheduler
         return new ScheduleResult(false, emptyTask, 1);
     }
 
-    private Set<RemoteTask> assignSplits(Multimap<Node, Split> splitAssignment, Map<Node, OptionalInt> noMoreSplitsNotification)
+    private Set<RemoteTask> assignSplits(Multimap<Node, Split> splitAssignment, Map<Node, DriverGroupId> noMoreSplitsNotification)
     {
         ImmutableSet.Builder<RemoteTask> newTasks = ImmutableSet.builder();
 
@@ -304,7 +304,7 @@ public class SourcePartitionedScheduler
             ImmutableMultimap<PlanNodeId, Split> splits = ImmutableMultimap.<PlanNodeId, Split>builder()
                     .putAll(partitionedNode, splitAssignment.get(node))
                     .build();
-            ImmutableMap.Builder<PlanNodeId, OptionalInt> noMoreSplits = ImmutableMap.builder();
+            ImmutableMap.Builder<PlanNodeId, DriverGroupId> noMoreSplits = ImmutableMap.builder();
             if (noMoreSplitsNotification.containsKey(node)) {
                 noMoreSplits.put(partitionedNode, noMoreSplitsNotification.get(node));
             }
@@ -356,13 +356,13 @@ public class SourcePartitionedScheduler
     private static class ScheduleGroup
     {
         // TODO! this field is unused
-        public final OptionalInt driverGroupId;
+        public final DriverGroupId driverGroupId;
         public Node node = null;
         public ListenableFuture<SplitBatch> batchFuture = null;
         public Set<Split> pendingSplits = new HashSet<>();
         public ScheduleGroupState state = ScheduleGroupState.INITIAL;
 
-        public ScheduleGroup(OptionalInt driverGroupId)
+        public ScheduleGroup(DriverGroupId driverGroupId)
         {
             this.driverGroupId = driverGroupId;
         }

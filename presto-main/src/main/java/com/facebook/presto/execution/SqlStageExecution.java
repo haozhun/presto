@@ -45,7 +45,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -88,7 +87,7 @@ public final class SqlStageExecution
 
     private final AtomicReference<OutputBuffers> outputBuffers = new AtomicReference<>();
 
-    private final ListenerManager<Set<OptionalInt>> completedDriverGroupChangeListeners = new ListenerManager<>();
+    private final ListenerManager<Set<DriverGroupId>> completedDriverGroupChangeListeners = new ListenerManager<>();
 
     public SqlStageExecution(
             StageId stageId,
@@ -147,7 +146,7 @@ public final class SqlStageExecution
         stateMachine.addStateChangeListener(stateChangeListener::stateChanged);
     }
 
-    public void addCompletedDriverGroupChangeListener(Consumer<Set<OptionalInt>> newlyCompletedDriverGroupConsumer)
+    public void addCompletedDriverGroupChangeListener(Consumer<Set<DriverGroupId>> newlyCompletedDriverGroupConsumer)
     {
         completedDriverGroupChangeListeners.addListener(newlyCompletedDriverGroupConsumer);
     }
@@ -299,7 +298,7 @@ public final class SqlStageExecution
         return scheduleTask(node, new TaskId(stateMachine.getStageId(), partition), ImmutableMultimap.of());
     }
 
-    public synchronized Set<RemoteTask> scheduleSplits(Node node, Multimap<PlanNodeId, Split> splits, Map<PlanNodeId, OptionalInt> noMoreSplitsNotification)
+    public synchronized Set<RemoteTask> scheduleSplits(Node node, Multimap<PlanNodeId, Split> splits, Map<PlanNodeId, DriverGroupId> noMoreSplitsNotification)
     {
         requireNonNull(node, "node is null");
         requireNonNull(splits, "splits is null");
@@ -322,7 +321,7 @@ public final class SqlStageExecution
             task = tasks.iterator().next();
             task.addSplits(splits);
         }
-        for (Entry<PlanNodeId, OptionalInt> entry : noMoreSplitsNotification.entrySet()) {
+        for (Entry<PlanNodeId, DriverGroupId> entry : noMoreSplitsNotification.entrySet()) {
             task.noMoreSplits(entry.getKey(), entry.getValue());
         }
         return newTasks.build();
@@ -397,7 +396,7 @@ public final class SqlStageExecution
             implements StateChangeListener<TaskStatus>
     {
         private long previousMemory;
-        private final Set<OptionalInt> completedDriverGroups = new HashSet<>();
+        private final Set<DriverGroupId> completedDriverGroups = new HashSet<>();
 
         @Override
         public void stateChanged(TaskStatus taskStatus)
@@ -447,7 +446,7 @@ public final class SqlStageExecution
 
         private synchronized void updateCompletedDriverGroups(TaskStatus taskStatus)
         {
-            Set<OptionalInt> newlyCompletedDriverGroups = taskStatus.getCompletedDriverGroups();
+            Set<DriverGroupId> newlyCompletedDriverGroups = taskStatus.getCompletedDriverGroups();
             newlyCompletedDriverGroups.removeAll(this.completedDriverGroups);
             if (newlyCompletedDriverGroups.isEmpty()) {
                 return;

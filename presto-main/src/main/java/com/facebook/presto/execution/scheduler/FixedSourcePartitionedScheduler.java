@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.execution.scheduler;
 
+import com.facebook.presto.execution.DriverGroupId;
 import com.facebook.presto.execution.RemoteTask;
 import com.facebook.presto.execution.SqlStageExecution;
 import com.facebook.presto.metadata.Split;
@@ -31,7 +32,6 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.OptionalInt;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -95,7 +95,7 @@ public class FixedSourcePartitionedScheduler
         int splitsScheduled = 0;
 
         Iterator<SourcePartitionedScheduler> schedulerIterator = sourcePartitionedSchedulers.iterator();
-        List<OptionalInt> driverGroupsToStart = ImmutableList.of();
+        List<DriverGroupId> driverGroupsToStart = ImmutableList.of();
         while (schedulerIterator.hasNext()) {
             SourcePartitionedScheduler sourcePartitionedScheduler = schedulerIterator.next();
 

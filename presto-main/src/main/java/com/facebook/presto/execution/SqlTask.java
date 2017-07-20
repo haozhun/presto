@@ -41,7 +41,6 @@ import javax.annotation.Nullable;
 import java.net.URI;
 import java.util.List;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -206,7 +205,7 @@ public class SqlTask
 
         TaskStats taskStats = getTaskStats(taskHolder);
         // TODO! With current implementation, a newly created driver group won't trigger immediate HTTP response
-        Set<OptionalInt> completedDriverGroups = getCompletedDriverGroups(taskHolder);
+        Set<DriverGroupId> completedDriverGroups = getCompletedDriverGroups(taskHolder);
         return new TaskStatus(
                 taskStateMachine.getTaskId(),
                 taskInstanceId,
@@ -248,7 +247,7 @@ public class SqlTask
         return ImmutableSet.of();
     }
 
-    private static Set<OptionalInt> getCompletedDriverGroups(TaskHolder taskHolder)
+    private static Set<DriverGroupId> getCompletedDriverGroups(TaskHolder taskHolder)
     {
         SqlTaskExecution taskExecution = taskHolder.getTaskExecution();
         if (taskExecution != null) {

@@ -61,7 +61,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicLong;
@@ -326,7 +325,7 @@ public class MockRemoteTaskFactory
         }
 
         @Override
-        public void noMoreSplits(PlanNodeId sourceId, OptionalInt driverGroupId)
+        public void noMoreSplits(PlanNodeId sourceId, DriverGroupId driverGroupId)
         {
             // TODO!
             throw new UnsupportedOperationException();

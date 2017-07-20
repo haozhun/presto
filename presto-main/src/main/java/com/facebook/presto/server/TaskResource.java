@@ -16,6 +16,7 @@ package com.facebook.presto.server;
 import com.facebook.presto.OutputBuffers.OutputBufferId;
 import com.facebook.presto.Session;
 import com.facebook.presto.TaskSource;
+import com.facebook.presto.execution.DriverGroupId;
 import com.facebook.presto.execution.TaskId;
 import com.facebook.presto.execution.TaskInfo;
 import com.facebook.presto.execution.TaskManager;
@@ -133,7 +134,7 @@ public class TaskResource
                     taskId.getId(),
                     taskSource.getPlanNodeId(),
                     taskSource.getNoMoreSplitsForDriverGroup().stream()
-                            .map(driverGroupId -> String.valueOf(driverGroupId.orElseGet(() -> -1)))
+                            .map(DriverGroupId::toString)
                             .collect(Collectors.joining(", ")),
                     taskSource.isNoMoreSplits(),
                     taskSource.getSplits().stream()

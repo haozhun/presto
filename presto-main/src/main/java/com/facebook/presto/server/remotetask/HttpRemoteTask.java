@@ -17,6 +17,7 @@ import com.facebook.presto.OutputBuffers;
 import com.facebook.presto.ScheduledSplit;
 import com.facebook.presto.Session;
 import com.facebook.presto.TaskSource;
+import com.facebook.presto.execution.DriverGroupId;
 import com.facebook.presto.execution.FutureStateChange;
 import com.facebook.presto.execution.NodeTaskMap.PartitionedSplitCountTracker;
 import com.facebook.presto.execution.RemoteTask;
@@ -122,7 +123,7 @@ public final class HttpRemoteTask
     @GuardedBy("this")
     private volatile int pendingSourceSplitCount;
     @GuardedBy("this")
-    private final SetMultimap<PlanNodeId, OptionalInt> pendingNoMoreSplitsForDriverGroup = HashMultimap.create();
+    private final SetMultimap<PlanNodeId, DriverGroupId> pendingNoMoreSplitsForDriverGroup = HashMultimap.create();
     @GuardedBy("this")
     private final Set<PlanNodeId> noMoreSplits = new HashSet<>();
     @GuardedBy("this")
@@ -342,7 +343,7 @@ public final class HttpRemoteTask
     }
 
     @Override
-    public synchronized void noMoreSplits(PlanNodeId sourceId, OptionalInt driverGroupId)
+    public synchronized void noMoreSplits(PlanNodeId sourceId, DriverGroupId driverGroupId)
     {
         pendingNoMoreSplitsForDriverGroup.put(sourceId, driverGroupId);
         needsUpdate.set(true);
@@ -437,7 +438,7 @@ public final class HttpRemoteTask
                     removed++;
                 }
             }
-            for (OptionalInt driverGroupId : source.getNoMoreSplitsForDriverGroup()) {
+            for (DriverGroupId driverGroupId : source.getNoMoreSplitsForDriverGroup()) {
                 if (pendingNoMoreSplitsForDriverGroup.remove(planNodeId, driverGroupId)) {
                     // TODO! do nothing (remove this line)
                 }
@@ -536,7 +537,7 @@ public final class HttpRemoteTask
     {
         Set<ScheduledSplit> splits = pendingSplits.get(planNodeId);
         boolean noMoreSplits = this.noMoreSplits.contains(planNodeId);
-        Set<OptionalInt> noMoreSplitsForDriverGroup = pendingNoMoreSplitsForDriverGroup.get(planNodeId);
+        Set<DriverGroupId> noMoreSplitsForDriverGroup = pendingNoMoreSplitsForDriverGroup.get(planNodeId);
         TaskSource element = null;
         if (!splits.isEmpty() || noMoreSplits) {
             element = new TaskSource(planNodeId, splits, noMoreSplitsForDriverGroup, noMoreSplits);

@@ -13,6 +13,7 @@
  */
 package com.facebook.presto.operator;
 
+import com.facebook.presto.execution.DriverGroupId;
 import com.facebook.presto.sql.planner.plan.ExecutionFlowStrategy;
 import com.facebook.presto.sql.planner.plan.PlanNodeId;
 import com.google.common.collect.ImmutableList;
@@ -108,7 +109,7 @@ public class DriverFactory
         return new Driver(driverContext, operators.build());
     }
 
-    public synchronized void noMoreDriver(OptionalInt driverGroupId)
+    public synchronized void noMoreDriver(DriverGroupId driverGroupId)
     {
         for (OperatorFactory operatorFactory : operatorFactories) {
             operatorFactory.noMoreOperator(driverGroupId);
