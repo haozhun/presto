@@ -57,6 +57,8 @@ import static java.util.Objects.requireNonNull;
 public class SourcePartitionedScheduler
         implements StageScheduler
 {
+    private static final int CONCURRENT_BUCKETS = 2;
+
     private enum State
     {
         INITIALIZED,
@@ -93,7 +95,7 @@ public class SourcePartitionedScheduler
         this.partitionedNode = partitionedNode;
 
         if (executionFlowStrategy == ExecutionFlowStrategy.PER_BUCKET) {
-            for (int i = 0; i < 2; i++) {
+            for (int i = 0; i < CONCURRENT_BUCKETS; i++) {
                 scheduleNextDriverGroup();
             }
             stage.addCompletedDriverGroupChangeListener(this::newDriverGroupCompleted);
@@ -112,6 +114,7 @@ public class SourcePartitionedScheduler
 
     private void scheduleNextDriverGroup()
     {
+        //TODO: Don't schedule past total number of buckets
         OptionalInt driverGroupId = OptionalInt.of(scheduledDriverGroupsCount.getAndIncrement());
         System.out.println(String.format("HJIN5: Scheduling new DriverGroup Stage %s PlanNodeId %s DriverGroup %s", stage.getStageId().getId(), partitionedNode, driverGroupId));
         startDriverGroups(ImmutableList.of(driverGroupId));
