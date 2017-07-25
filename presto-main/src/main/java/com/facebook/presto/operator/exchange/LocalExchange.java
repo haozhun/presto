@@ -31,7 +31,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
@@ -343,18 +342,13 @@ public class LocalExchange
 
         public synchronized LocalExchange getLocalExchange(DriverGroupId driverGroupId)
         {
-            AtomicBoolean isNew = new AtomicBoolean();
             LocalExchange result = localExchangeMap.computeIfAbsent(driverGroupId, ignored -> {
-                isNew.set(true);
                 LocalExchange localExchange = createLocalExchange();
                 for (LocalExchangeSinkFactoryId closedSinkFactoryId : closedSinkFactories) {
                     localExchange.getSinkFactory(closedSinkFactoryId).close();
                 }
                 return localExchange;
             });
-            if (isNew.get() && listener != null) {
-                listener.accept(driverGroupId);
-            }
             return result;
         }
 
@@ -364,16 +358,6 @@ public class LocalExchange
             for (LocalExchange localExchange : localExchangeMap.values()) {
                 localExchange.getSinkFactory(sinkFactoryId).close();
             }
-        }
-
-        // TODO: remove this hack! this should be possible. SqlTaskExecution could create DriverSplitRunner for all intermediate
-        // pipelines when a new driver group is encountered.
-        private Consumer<DriverGroupId> listener;
-        public synchronized void setNewLocalExchangeListener(Consumer<DriverGroupId> listener)
-        {
-            requireNonNull(listener, "listener is null");
-            checkState(this.listener == null, "listener already set");
-            this.listener = listener;
         }
     }
 
