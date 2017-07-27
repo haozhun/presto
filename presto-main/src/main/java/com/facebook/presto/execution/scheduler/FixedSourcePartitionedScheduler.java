@@ -99,7 +99,9 @@ public class FixedSourcePartitionedScheduler
         while (schedulerIterator.hasNext()) {
             SourcePartitionedScheduler sourcePartitionedScheduler = schedulerIterator.next();
 
-            sourcePartitionedScheduler.startDriverGroups(driverGroupsToStart);
+            // TODO! investigate whether this used to be phased
+            // TODO! if so, investigated about phased scheduling for bucketed
+            //sourcePartitionedScheduler.startDriverGroups(driverGroupsToStart);
 
             ScheduleResult schedule = sourcePartitionedScheduler.schedule();
             splitsScheduled += schedule.getSplitsScheduled();
