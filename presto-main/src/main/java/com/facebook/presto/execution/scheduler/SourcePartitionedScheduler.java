@@ -32,6 +32,7 @@ import com.google.common.collect.Multimap;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.SettableFuture;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -43,11 +44,13 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static com.facebook.presto.execution.scheduler.ScheduleResult.BlockedReason.NO_ACTIVE_DRIVER_GROUP;
 import static com.facebook.presto.execution.scheduler.ScheduleResult.BlockedReason.SPLIT_QUEUES_FULL;
 import static com.facebook.presto.execution.scheduler.ScheduleResult.BlockedReason.WAITING_FOR_SOURCE;
 import static com.facebook.presto.spi.StandardErrorCode.NO_NODES_AVAILABLE;
 import static com.facebook.presto.util.Failures.checkCondition;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.google.common.util.concurrent.Futures.nonCancellationPropagating;
 import static io.airlift.concurrent.MoreFutures.getFutureValue;
@@ -58,6 +61,11 @@ public class SourcePartitionedScheduler
         implements StageScheduler
 {
     private static final int CONCURRENT_BUCKETS = 2;
+    private static final SettableFuture<?> IS_AVAILABLE;
+    static {
+        IS_AVAILABLE = SettableFuture.create();
+        IS_AVAILABLE.set(null);
+    }
 
     private enum State
     {
@@ -75,7 +83,9 @@ public class SourcePartitionedScheduler
     private final Map<DriverGroupId, ScheduleGroup> scheduleGroups = new HashMap<>();
     private State state = State.INITIALIZED;
 
-    private AtomicInteger scheduledDriverGroupsCount = new AtomicInteger();
+    private SettableFuture<?> whenActiveDriverGroupAvailable = IS_AVAILABLE;
+
+    private final AtomicInteger scheduledDriverGroupsCount = new AtomicInteger();
 
     public SourcePartitionedScheduler(
             SqlStageExecution stage,
@@ -112,12 +122,13 @@ public class SourcePartitionedScheduler
         }
     }
 
-    private void scheduleNextDriverGroup()
+    private synchronized void scheduleNextDriverGroup()
     {
         //TODO: Don't schedule past total number of buckets
         DriverGroupId driverGroupId = DriverGroupId.of(scheduledDriverGroupsCount.getAndIncrement());
         System.out.println(String.format("HJIN5: Scheduling new DriverGroup Stage %s PlanNodeId %s DriverGroup %s", stage.getStageId().getId(), partitionedNode, driverGroupId));
         startDriverGroups(ImmutableList.of(driverGroupId));
+        whenActiveDriverGroupAvailable.set(null);
     }
 
     @Override
@@ -216,6 +227,18 @@ public class SourcePartitionedScheduler
             if (finished) {
                 splitSource.close();
             }
+            else if (overallSplitAssignmentCount == 0) {
+                verify(overallNewTasks.build().isEmpty());
+                if (scheduleGroups.isEmpty()) {
+                    return new ScheduleResult(
+                            false,
+                            ImmutableList.of(),
+                            whenActiveDriverGroupAvailable,
+                            NO_ACTIVE_DRIVER_GROUP,
+                            0);
+                }
+            }
+
             return new ScheduleResult(
                     finished,
                     overallNewTasks.build(),
@@ -272,6 +295,11 @@ public class SourcePartitionedScheduler
                 entryIterator.remove();
             }
         }
+
+        if (scheduleGroups.isEmpty() && whenActiveDriverGroupAvailable.isDone()) {
+            whenActiveDriverGroupAvailable = SettableFuture.create();
+        }
+
         return result.build();
     }
 
