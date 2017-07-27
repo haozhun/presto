@@ -38,6 +38,8 @@ public class ConnectorAwareSplitSource
     private final ConnectorId connectorId;
     private final ConnectorTransactionHandle transactionHandle;
     private final ConnectorSplitSource source;
+
+    // TODO: remove if unused
     private final ExecutionFlowStrategy executionFlowStrategy;
 
     public ConnectorAwareSplitSource(

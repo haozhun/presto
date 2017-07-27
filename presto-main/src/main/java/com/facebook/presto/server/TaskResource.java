@@ -25,6 +25,7 @@ import com.facebook.presto.execution.TaskStatus;
 import com.facebook.presto.execution.buffer.BufferResult;
 import com.facebook.presto.execution.buffer.SerializedPage;
 import com.facebook.presto.metadata.SessionPropertyManager;
+import com.facebook.presto.metadata.Split;
 import com.facebook.presto.spi.Page;
 import com.google.common.collect.ImmutableList;
 import com.google.common.reflect.TypeToken;
@@ -138,7 +139,15 @@ public class TaskResource
                             .collect(Collectors.joining(", ")),
                     taskSource.isNoMoreSplits(),
                     taskSource.getSplits().stream()
-                            .map(scheduledSplit -> scheduledSplit.getSplit().getConnectorId().toString())
+                            .map(scheduledSplit -> {
+                                Split split = scheduledSplit.getSplit();
+                                if (split.getConnectorId().toString().equals("prism")) {
+                                    return String.valueOf(split.getConnectorSplit().getDriverGroupId());
+                                }
+                                else {
+                                    return split.getConnectorId().toString();
+                                }
+                            })
                             .collect(Collectors.joining(", "))
             ));
         }
