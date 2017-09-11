@@ -161,6 +161,7 @@ public class SourcePartitionedScheduler
     public synchronized void startLifespan(Lifespan lifespan, ConnectorPartitionHandle partitionHandle)
     {
         checkState(state == State.INITIALIZED || state == State.SPLITS_ADDED);
+        System.out.println(String.format("HJIN5 started DGs: Stage %s, NodeId %s, %s", stage.getStageId().getId(), partitionedNode, lifespan));
         scheduleGroups.put(lifespan, new ScheduleGroup(partitionHandle));
         whenFinishedOrNewLifespanAdded.set(null);
         whenFinishedOrNewLifespanAdded = SettableFuture.create();
@@ -241,6 +242,7 @@ public class SourcePartitionedScheduler
                 if (!lifespan.isTaskWide()) {
                     Node node = ((FixedSplitPlacementPolicy) splitPlacementPolicy).getNodeForBucket(lifespan.getId());
                     noMoreSplitsNotification = ImmutableMultimap.of(node, lifespan);
+                    System.out.println(String.format("HJIN5 sent DG completion event: Stage %s, NodeId %s, %s", stage.getStageId().getId(), partitionedNode, lifespan));
                 }
             }
 
@@ -281,6 +283,7 @@ public class SourcePartitionedScheduler
                     // fall through
                 case SPLITS_ADDED:
                     state = State.NO_MORE_SPLITS;
+                    System.out.println(String.format("HJIN3 splitSource.close: Stage %s, NodeId %s", stage.getStageId().getId(), partitionedNode));
                     splitSource.close();
                     // fall through
                 case NO_MORE_SPLITS:
@@ -288,6 +291,7 @@ public class SourcePartitionedScheduler
                     whenFinishedOrNewLifespanAdded.set(null);
                     // fall through
                 case FINISHED:
+                    System.out.println(String.format("HJIN5 sent node completion event: Stage %s, NodeId %s", stage.getStageId().getId(), partitionedNode));
                     return new ScheduleResult(
                             true,
                             overallNewTasks.build(),
@@ -312,6 +316,19 @@ public class SourcePartitionedScheduler
             blockedReason = anyBlockedOnPlacements ? SPLIT_QUEUES_FULL : NO_ACTIVE_DRIVER_GROUP;
         }
 
+        if (blockedReason == NO_ACTIVE_DRIVER_GROUP) {
+            StringBuilder sb = new StringBuilder();
+            for (Entry<Lifespan, ScheduleGroup> entry : scheduleGroups.entrySet()) {
+                Lifespan lifespan = entry.getKey();
+                ScheduleGroup scheduleGroup = entry.getValue();
+                sb.append(String.format("DG %s State %s NexB %s Plac %s; ",
+                        lifespan,
+                        scheduleGroup.state,
+                        scheduleGroup.nextSplitBatchFuture == null ? "ok" : "blocked",
+                        scheduleGroup.pendingSplits.isEmpty() ? "ok" : "blocked"));
+            }
+            System.out.println(String.format("NoActive %s %s: %s", state, scheduleGroups.size(), sb.toString()));
+        }
         overallBlockedFutures.add(whenFinishedOrNewLifespanAdded);
         return new ScheduleResult(
                 false,

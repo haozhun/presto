@@ -445,6 +445,7 @@ public class SqlQueryScheduler
             ExecutionSchedule executionSchedule = executionPolicy.createExecutionSchedule(stages.values());
             while (!executionSchedule.isFinished()) {
                 List<ListenableFuture<?>> blockedStages = new ArrayList<>();
+                StringBuilder sb = new StringBuilder();
                 for (SqlStageExecution stage : executionSchedule.getStagesToSchedule()) {
                     stage.beginScheduling();
 
@@ -480,6 +481,10 @@ public class SqlQueryScheduler
                                 throw new UnsupportedOperationException("Unknown blocked reason: " + result.getBlockedReason().get());
                         }
                     }
+                    sb.append('\n');
+                    sb.append(String.format(
+                            "HJIN4: Stage %s %08x %s Reason %s",
+                            stage.getStageId(), System.identityHashCode(result.getBlocked()), result.getBlocked().isDone() ? "DONE" : "BLOCKED", result.getBlockedReason()));
                 }
 
                 // make sure to update stage linkage at least once per loop to catch async state changes (e.g., partial cancel)
@@ -494,7 +499,12 @@ public class SqlQueryScheduler
                 // wait for a state change and then schedule again
                 if (!blockedStages.isEmpty()) {
                     try (TimeStat.BlockTimer timer = schedulerStats.getSleepTime().time()) {
+                        long nanoA = System.nanoTime();
                         tryGetFutureValue(whenAnyComplete(blockedStages), 1, SECONDS);
+                        long nanoB = System.nanoTime();
+                        if (nanoB - nanoA >= 900_000_000L) {
+                            System.out.println("SOMETHING WAS WRONG" + sb.toString() + "\nEND");
+                        }
                     }
                     for (ListenableFuture<?> blockedStage : blockedStages) {
                         blockedStage.cancel(true);

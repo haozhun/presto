@@ -487,6 +487,7 @@ public final class SqlStageExecution
             if (newlyCompletedDriverGroups.isEmpty()) {
                 return;
             }
+            System.out.println(String.format("HJIN5 completed DGs: %s", completedDriverGroups));
             completedLifespansChangeListeners.invoke(newlyCompletedDriverGroups, executor);
             // newlyCompletedDriverGroups is a view.
             // Making changes to completedDriverGroups will change newlyCompletedDriverGroups.

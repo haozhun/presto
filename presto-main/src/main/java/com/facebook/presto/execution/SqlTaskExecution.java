@@ -25,6 +25,7 @@ import com.facebook.presto.operator.Driver;
 import com.facebook.presto.operator.DriverContext;
 import com.facebook.presto.operator.DriverFactory;
 import com.facebook.presto.operator.DriverStats;
+import com.facebook.presto.operator.OperatorFactory;
 import com.facebook.presto.operator.PipelineContext;
 import com.facebook.presto.operator.PipelineExecutionStrategy;
 import com.facebook.presto.operator.TaskContext;
@@ -188,6 +189,20 @@ public class SqlTaskExecution
         this.queryMonitor = requireNonNull(queryMonitor, "queryMonitor is null");
 
         try (SetThreadName ignored = new SetThreadName("Task-%s", taskId)) {
+            if (taskId.getId() == 0) {
+                StringBuilder sb = new StringBuilder();
+                sb.append("Pipelines for Stage ").append(taskId.getStageId().getId()).append(":\n");
+                for (DriverFactory driverFactory : localExecutionPlan.getDriverFactories()) {
+                    sb.append("  Pipeline ").append(driverFactory.getPipelineId()).append(":");
+                    sb.append("  ").append(driverFactory.getPipelineExecutionStrategy());
+                    sb.append('\n');
+                    for (OperatorFactory operatorFactory : driverFactory.getOperatorFactories()) {
+                        sb.append("    ").append(operatorFactory.getClass().getSimpleName()).append('\n');
+                    }
+                }
+                System.out.println(sb.toString());
+            }
+
             // index driver factories
             Set<PlanNodeId> partitionedSources = ImmutableSet.copyOf(localExecutionPlan.getPartitionedSourceOrder());
             ImmutableMap.Builder<PlanNodeId, DriverSplitRunnerFactory> driverRunnerFactoriesWithSplitLifeCycle = ImmutableMap.builder();
@@ -271,6 +286,18 @@ public class SqlTaskExecution
         requireNonNull(sources, "sources is null");
         checkState(!Thread.holdsLock(this), "Can not add sources while holding a lock on the %s", getClass().getSimpleName());
 
+        for (TaskSource source : sources) {
+            if (true) {
+                continue;
+            }
+            System.out.println(String.format(
+                    "HJIN9: Task %s.%s Plan %s Splits %s NoMoreSplits %s",
+                    taskId.getStageId().getId(),
+                    taskId.getId(),
+                    source.getPlanNodeId(),
+                    source.getSplits().stream().map(x -> x.getSplit().getConnectorId().toString()).collect(Collectors.joining(",")),
+                    source.isNoMoreSplits()));
+        }
         try (SetThreadName ignored = new SetThreadName("Task-%s", taskId)) {
             // update our record of sources and schedule drivers for new partitioned splits
             Map<PlanNodeId, TaskSource> updatedUnpartitionedSources = updateSources(sources);
