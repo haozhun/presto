@@ -50,7 +50,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Function;
 
-import static com.facebook.presto.hive.BackgroundHiveSplitLoader.BucketSplitInfo.createBucketSplitInfo;
 import static com.facebook.presto.hive.HiveErrorCode.HIVE_INVALID_METADATA;
 import static com.facebook.presto.hive.HiveErrorCode.HIVE_PARTITION_DROPPED_DURING_QUERY;
 import static com.facebook.presto.hive.HiveErrorCode.HIVE_PARTITION_SCHEMA_MISMATCH;
@@ -197,7 +196,8 @@ public class HiveSplitManager
                 table,
                 hivePartitions,
                 layout.getCompactEffectivePredicate(),
-                createBucketSplitInfo(bucketHandle, buckets),
+                bucketHandle,
+                buckets,
                 session,
                 hdfsEnvironment,
                 namenodeStats,

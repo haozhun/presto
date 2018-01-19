@@ -46,7 +46,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
 
-import static com.facebook.presto.hive.BackgroundHiveSplitLoader.BucketSplitInfo.createBucketSplitInfo;
 import static com.facebook.presto.hive.HiveBucketing.HiveBucket;
 import static com.facebook.presto.hive.HiveColumnHandle.pathColumnHandle;
 import static com.facebook.presto.hive.HiveTestUtils.SESSION;
@@ -233,7 +232,8 @@ public class TestBackgroundHiveSplitLoader
                 table,
                 hivePartitionMetadatas,
                 compactEffectivePredicate,
-                createBucketSplitInfo(bucketHandle, hiveBuckets),
+                bucketHandle,
+                hiveBuckets,
                 connectorSession,
                 new TestingHdfsEnvironment(),
                 new NamenodeStats(),
