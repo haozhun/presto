@@ -14,17 +14,25 @@
 package com.facebook.presto.hive.util;
 
 import com.facebook.presto.hive.DirectoryLister;
+import com.facebook.presto.hive.HiveColumnHandle;
+import com.facebook.presto.hive.HivePartitionKey;
+import com.facebook.presto.hive.HiveTypeName;
 import com.facebook.presto.hive.NamenodeStats;
 import com.facebook.presto.spi.PrestoException;
+import com.facebook.presto.spi.predicate.TupleDomain;
 import com.google.common.collect.AbstractIterator;
 import io.airlift.stats.TimeStat;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
+import org.apache.hadoop.mapred.InputFormat;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
 
 import static com.facebook.presto.hive.HiveErrorCode.HIVE_FILESYSTEM_ERROR;
 import static com.facebook.presto.hive.HiveErrorCode.HIVE_FILE_NOT_FOUND;
@@ -38,7 +46,11 @@ public class HiveFileIterator
     private final NamenodeStats namenodeStats;
     private final Path path;
     private final String partitionName;
-    private final InternalHiveSplitFactory splitFactory;
+    private final InputFormat<?, ?> inputFormat;
+    private final Properties schema;
+    private final List<HivePartitionKey> partitionKeys;
+    private final TupleDomain<HiveColumnHandle> effectivePredicate;
+    private final Map<Integer, HiveTypeName> columnCoercions;
 
     private RemoteIterator<LocatedFileStatus> remoteIterator;
 
@@ -48,14 +60,22 @@ public class HiveFileIterator
             DirectoryLister directoryLister,
             NamenodeStats namenodeStats,
             String partitionName,
-            InternalHiveSplitFactory splitFactory)
+            InputFormat<?, ?> inputFormat,
+            Properties schema,
+            List<HivePartitionKey> partitionKeys,
+            TupleDomain<HiveColumnHandle> effectivePredicate,
+            Map<Integer, HiveTypeName> columnCoercions)
     {
         this.partitionName = requireNonNull(partitionName, "partitionName is null");
+        this.inputFormat = requireNonNull(inputFormat, "inputFormat is null");
+        this.schema = requireNonNull(schema, "schema is null");
+        this.partitionKeys = requireNonNull(partitionKeys, "partitionKeys is null");
+        this.effectivePredicate = requireNonNull(effectivePredicate, "effectivePredicate is null");
         this.path = requireNonNull(path, "path is null");
         this.fileSystem = requireNonNull(fileSystem, "fileSystem is null");
         this.directoryLister = requireNonNull(directoryLister, "directoryLister is null");
         this.namenodeStats = requireNonNull(namenodeStats, "namenodeStats is null");
-        this.splitFactory = requireNonNull(splitFactory, "splitFactory is null");
+        this.columnCoercions = requireNonNull(columnCoercions, "columnCoercions is null");
     }
 
     @Override
@@ -110,18 +130,48 @@ public class HiveFileIterator
         }
     }
 
+    public FileSystem getFileSystem()
+    {
+        return fileSystem;
+    }
+
+    public DirectoryLister getDirectoryLister()
+    {
+        return directoryLister;
+    }
+
+    public NamenodeStats getNamenodeStats()
+    {
+        return namenodeStats;
+    }
+
     public String getPartitionName()
     {
         return partitionName;
     }
 
-    public InternalHiveSplitFactory getSplitFactory()
+    public InputFormat<?, ?> getInputFormat()
     {
-        return splitFactory;
+        return inputFormat;
     }
 
-    public HiveFileIterator withPath(Path path)
+    public Properties getSchema()
     {
-        return new HiveFileIterator(path, fileSystem, directoryLister, namenodeStats, partitionName, splitFactory);
+        return schema;
+    }
+
+    public List<HivePartitionKey> getPartitionKeys()
+    {
+        return partitionKeys;
+    }
+
+    public TupleDomain<HiveColumnHandle> getEffectivePredicate()
+    {
+        return effectivePredicate;
+    }
+
+    public Map<Integer, HiveTypeName> getColumnCoercions()
+    {
+        return columnCoercions;
     }
 }
