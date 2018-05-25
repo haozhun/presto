@@ -28,7 +28,7 @@ import static java.util.Objects.requireNonNull;
 
 public class PageBuilder
 {
-    private static final int DEFAULT_INITIAL_EXPECTED_ENTRIES = 1024;
+    private static final int DEFAULT_INITIAL_EXPECTED_ENTRIES = 64;
 
     private final BlockBuilder[] blockBuilders;
     private final List<Type> types;
